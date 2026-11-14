@@ -1,0 +1,10 @@
+# Build output
+/build/
+/dist/
+*.o
+*.elf
+
+# Local config with a device key
+config.cfg
+
+.DS_Store

@@ -1,0 +1,13 @@
+# gowithme.club config for the PS5: /data/gowithme.club/config.cfg
+#
+# Not needed for a normal install. The payload writes the device key (token)
+# here itself after pairing with the on-screen code.
+
+# Name on the server. Defaults to the console profile name.
+account =
+
+# On-screen notifications.
+popups  = true
+
+host    = gowithme.club
+port    = 80
