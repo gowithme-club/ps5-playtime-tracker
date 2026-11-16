@@ -1,5 +1,6 @@
 #include "check.h"
 #include "config.h"
+#include "console.h"
 #include "pair.h"
 
 int main(void)
@@ -27,10 +28,11 @@ int main(void)
 	CHECK_STR(token, "tok_ABC-123");
 	CHECK(gwm_pair_parse_poll("{\"error\":\"Unknown pairing\"}", "sec", token, sizeof(token)) == -1);
 
-	size_t n = gwm_pair_start_body(out, sizeof(out), "Player", "PS5-123");
+	size_t n = gwm_pair_start_body(out, sizeof(out), "Player", "PS5-123", "00112233445566778899aabbccddeeff");
 	CHECK(n == strlen(out));
-	CHECK_STR(out, "{\"platform\":\"ps5-cfw\",\"device\":\"PS5-123\",\"profile\":\"Player\"}");
-	gwm_pair_start_body(out, sizeof(out), "", "");
+	CHECK_STR(out, "{\"platform\":\"ps5-cfw\",\"device\":\"PS5-123\","
+	               "\"consoleId\":\"00112233445566778899aabbccddeeff\",\"profile\":\"Player\"}");
+	gwm_pair_start_body(out, sizeof(out), "", "", "");
 	CHECK_STR(out, "{\"platform\":\"ps5-cfw\"}");
 
 	/* The token becomes the first line, the old one is dropped, the rest stays. */
@@ -59,11 +61,37 @@ int main(void)
 	CHECK_STR(c.token, "abc");
 	CHECK_STR(c.account, "Player");
 
-	/* The console name goes into the heartbeat body; an empty one is not sent. */
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "PS5-123", 0, "", "", "", "");
-	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"deviceName\":\"PS5-123\",\"current\":[]}");
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", 0, "", "", "", "");
+	/* The console name and identifier go into the heartbeat body; empty ones are not sent. */
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "PS5-123", "00112233445566778899aabbccddeeff", 0, "", "", "", "");
+	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"deviceName\":\"PS5-123\","
+	               "\"consoleId\":\"00112233445566778899aabbccddeeff\",\"current\":[]}");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", 0, "", "", "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"current\":[]}");
+
+	/* SHA-256 against the standard vectors: one block, the empty input, two blocks of padding. */
+	uint8_t digest[GWM_SHA256_LEN];
+	char hex[65];
+	const char *vectors[][2] = {
+		{ "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+		{ "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+		{ "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+		  "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+	};
+	for(size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]); i++)
+	{
+		gwm_sha256((const uint8_t *)vectors[i][0], strlen(vectors[i][0]), digest);
+		for(int k = 0; k < GWM_SHA256_LEN; k++) snprintf(hex + k * 2, 3, "%02x", digest[k]);
+		CHECK_STR(hex, vectors[i][1]);
+	}
+
+	/* The console identifier: 32 hex characters of a prefixed hash; no identifier from zeros. */
+	uint8_t psid[GWM_OPENPSID_LEN], zeros[GWM_OPENPSID_LEN] = { 0 };
+	char id[GWM_CONSOLE_ID_LEN];
+	for(int i = 0; i < GWM_OPENPSID_LEN; i++) psid[i] = (uint8_t)i;
+	CHECK(gwm_console_id_hash(psid, id) == 1);
+	CHECK_STR(id, "e547e82517de890aa1894d27afe2ed54");
+	CHECK(gwm_console_id_hash(zeros, id) == 0);
+	CHECK_STR(id, "");
 
 	return gwm_report("pair");
 }

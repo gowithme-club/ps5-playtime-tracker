@@ -36,7 +36,7 @@ jailbroken PS5, for PS5 and PS4 games, and syncs them to your
    [latest release](https://github.com/gowithme-club/ps5-playtime-tracker/releases/latest).
 2. Load it with Payload Manager, or send it to elfldr on port 9021.
    The console shows a six-digit code.
-3. On gowithme.club open **Settings → PS5 (CFW)** and enter the code.
+3. Enter the code at [gowithme.club/ps5](https://gowithme.club/ps5).
 
 No config file is needed.
 
@@ -65,7 +65,8 @@ Yes. Reports wait in a queue on the console and go out once it is online.
 
 **What does it send?**
 The game's title ID and name, session times, unlocked trophies, the console
-profile name and the console's name from its settings.
+profile name, the console's name from its settings and an anonymous console
+identifier, a hash of its hardware id.
 
 **How do I remove it?**
 Stop loading the payload and delete `/data/gowithme.club` on the console.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- The pairing notification says where to enter the code:
+  "Enter code 123456 at gowithme.club/ps5".
+- The payload sends an anonymous console identifier, a hash of the hardware
+  id, so a console paired again after a reinstall stays one console on the
+  site instead of appearing twice.
+
 ## 1.0.0
 
 First public release. Tested on PS5 firmware 13.40 with Payload Manager.

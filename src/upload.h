@@ -84,7 +84,7 @@ static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s)
 	gwm_iso_from_unix(sent, gwm_now());
 	gwm_iso_from_unix(started, s->start + gwm_clock_offset);
 
-	size_t len = gwm_build_heartbeat(body, sizeof(body), sent, gwm_console_name(), s->active,
+	size_t len = gwm_build_heartbeat(body, sizeof(body), sent, gwm_console_name(), gwm_console_id(), s->active,
 	                                 s->account, s->title_id,
 	                                 s->title[0] ? s->title : s->title_id, started);
 

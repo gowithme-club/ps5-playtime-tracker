@@ -2,11 +2,13 @@
  *
  * There is no good way to type a token on a PS5: no keyboard, no SD card,
  * and FTP is too much to ask. So without a token the payload asks the server
- * for a code (POST /ingest/v1/pair), shows it in a notification ("enter code
- * 123456 to link your account") and every few seconds asks whether it was
- * entered (POST /ingest/v1/pair/poll). Once the code is entered in the
- * "PS5 (CFW)" card on the site, the next poll brings the key; the payload
- * writes it to config.cfg and carries on as usual.
+ * for a code (POST /ingest/v1/pair), shows it in a notification ("Enter code
+ * 123456 at gowithme.club/ps5") and every few seconds asks whether it was
+ * entered (POST /ingest/v1/pair/poll). The notification names the page
+ * because it is all a person sees: someone who only downloaded the file has
+ * to learn from it where the code goes. Once the code is entered on the
+ * site, the next poll brings the key; the payload writes it to config.cfg
+ * and carries on as usual.
  *
  * A PS5 notification fades in a few seconds and its duration cannot be set,
  * so while the code is valid it is repeated every 10 seconds. A code lives
@@ -27,6 +29,9 @@
 
 #define GWM_PATH_PAIR      "/ingest/v1/pair"
 #define GWM_PATH_PAIR_POLL "/ingest/v1/pair/poll"
+
+/* The page that explains the tracker and takes the code. */
+#define GWM_PAIR_URL "gowithme.club/ps5"
 
 #define GWM_PAIR_TOAST_EVERY_SEC 10
 #define GWM_PAIR_RETRY_SEC       60
@@ -74,7 +79,8 @@ static int gwm_pair_parse_poll(const char *body, const char *secret, char *token
 	return token[0] ? 1 : -1;
 }
 
-static size_t gwm_pair_start_body(char *out, size_t size, const char *profile, const char *device)
+static size_t gwm_pair_start_body(char *out, size_t size, const char *profile, const char *device,
+                                  const char *console_id)
 {
 	char *p = out, *end = out + size;
 
@@ -84,6 +90,11 @@ static size_t gwm_pair_start_body(char *out, size_t size, const char *profile, c
 	{
 		p = gwm_lit(p, end, ",");
 		p = gwm_json_kv(p, end, "device", device);
+	}
+	if(console_id && console_id[0])
+	{
+		p = gwm_lit(p, end, ",");
+		p = gwm_json_kv(p, end, "consoleId", console_id);
 	}
 	if(profile && profile[0])
 	{
@@ -105,21 +116,21 @@ static size_t gwm_pair_start_body(char *out, size_t size, const char *profile, c
 
 static void gwm_pair_toast(const gwm_pair_t *p)
 {
-	gwm_toast(GWM_PRODUCT ": enter code %s to link your account", p->code);
+	gwm_toast("Enter code %s at " GWM_PAIR_URL, p->code);
 }
 
 /* One pairing step, called every second while there is no token. Returns 1
  * once the key is received and written to the config. */
 static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *profile)
 {
-	char body[256], resp[1024];
+	char body[512], resp[1024];
 	int64_t now = gwm_now_raw();
 
 	if(!p->active)
 	{
 		if(now < p->next_start) return 0;
 
-		size_t len = gwm_pair_start_body(body, sizeof(body), profile, gwm_console_name());
+		size_t len = gwm_pair_start_body(body, sizeof(body), profile, gwm_console_name(), gwm_console_id());
 		int code = gwm_http_request(cfg, GWM_PATH_PAIR, body, len, NULL, resp, sizeof(resp));
 
 		if(code != 200 || !gwm_pair_parse_start(resp, p))

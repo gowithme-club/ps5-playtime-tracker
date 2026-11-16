@@ -79,10 +79,11 @@ static size_t gwm_build_session(char *out, size_t out_size,
 }
 
 /* An empty current means the console is on but nothing is being played.
- * device_name is the console name from its settings (console.h); an empty
- * one is not sent. */
+ * device_name is the console name from its settings and console_id its
+ * identifier (console.h); an empty one is not sent. */
 static size_t gwm_build_heartbeat(char *out, size_t out_size,
-                                  const char *sent_at, const char *device_name, int playing,
+                                  const char *sent_at, const char *device_name,
+                                  const char *console_id, int playing,
                                   const char *account,
                                   const char *title_id, const char *title,
                                   const char *started_at)
@@ -96,6 +97,11 @@ static size_t gwm_build_heartbeat(char *out, size_t out_size,
 	{
 		p = gwm_lit(p, end, ",");
 		p = gwm_json_kv(p, end, "deviceName", device_name);
+	}
+	if(console_id && console_id[0])
+	{
+		p = gwm_lit(p, end, ",");
+		p = gwm_json_kv(p, end, "consoleId", console_id);
 	}
 	p = gwm_lit(p, end, ",\"current\":[");
 
