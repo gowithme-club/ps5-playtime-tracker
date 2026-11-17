@@ -4,7 +4,7 @@ Instructions for anyone, human or agent, working in this repository.
 
 ## What this is
 
-A payload for a jailbroken PS5, launched through elfldr or Payload Manager. It detects the running game, measures play sessions, picks up earned trophies and sends them to the gowithme.club ingest API. It is a single-threaded process with a 10-second poll loop (`src/main.c`); every module is a header in `src/`, and each header's top comment explains its design.
+A payload for a jailbroken PS5, launched through elfldr or Payload Manager. It detects the running game, measures play sessions, picks up earned trophies and sends them to the gowithme.club ingest API. Everything runs in one 10-second poll loop (`src/main.c`), beside two small threads that only take what the loop hands them: the page the home-screen tile opens (`src/web.h`) and the tile's registration (`src/tile.h`). Every module is a header in `src/`, and each header's top comment explains its design.
 
 Everything sent to the server carries the platform key `ps5-cfw`, not `ps5`, which is the server's official PSN integration. The server owns all domain logic; this client only forwards events.
 
@@ -44,6 +44,9 @@ A new copy replaces the running one by itself. Logs and state are in `/data/gowi
 - PS4 trophies exist only as notifications, which the system deletes within hours (`src/notif.h`). PS5 trophies come from the trophy files (`src/trophy2.h`).
 - A real `TRPTITLE.DAT` carries the user id and the console's openPsid. `tests/fixtures/trptitle_ps5.dat` keeps only the block table and the trophy records; scrub any new console dump the same way before committing it.
 - Never kill other processes by pid: every elfldr payload is named `payload.elf`.
+- An import the firmware does not export stops the ELF at load, before `main`, with nothing in our log; only the kernel log says "Unable to resolve" (klogsrv, port 3232). 13.40 has no `sceAppInstUtilAppInstallTitleDir`: the tile is looked up by NID at run time and registered with `sceAppInstUtilAppInstallAll` (`src/tile.h`). Check every new import on the console.
+- The shell reads notification icons by their `/user/data/...` path, not `/data/...` (`src/log.h`).
+- The tile opens the console's browser in a 1540×700 window over the home screen, steered by a stick cursor whose hotspot is the arrow tip: keep targets large (`assets/page.html`).
 
 ## Workflow
 

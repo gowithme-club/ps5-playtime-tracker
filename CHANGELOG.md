@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0
+
+- A gowithme.club tile in Media. It shows the pairing code with a QR code
+  that opens gowithme.club/ps5 on a phone with the code filled in; once the
+  console is linked, it shows the last report and the owner's profile as a
+  link and a QR code. The page follows the console's language.
+- Notifications carry the gowithme.club icon and no longer say "Debug".
+- The pairing code is shown for 20 minutes. After that the payload says the
+  console is not linked and stays quiet; "Show code" on the tile or loading
+  the payload again brings a new one. Before, the code repeated every 10
+  seconds for as long as the payload ran.
+- A console removed on the site shows "console unlinked" and no new code.
+- Without a connection the payload says it cannot get a code.
+
 ## 1.0.1
 
 - The pairing notification says where to enter the code:

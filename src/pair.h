@@ -14,6 +14,13 @@
  * so while the code is valid it is repeated every 10 seconds. A code lives
  * 10 minutes; when it expires the payload takes a new one.
  *
+ * New codes are taken for 20 minutes after the first one: two codes, enough
+ * to sign up on the site. Then the payload says once that the console is not
+ * linked and shows no more codes until "Show code" on the tile (web.h) or
+ * the payload is loaded again. A console nobody
+ * links, one in a loader's autoload say, must not repeat a code through every
+ * game. Sessions and trophies keep queueing meanwhile.
+ *
  * Response parsing is pure, covered by a host test.
  */
 
@@ -35,6 +42,7 @@
 
 #define GWM_PAIR_TOAST_EVERY_SEC 10
 #define GWM_PAIR_RETRY_SEC       60
+#define GWM_PAIR_WINDOW_SEC      (20 * 60)
 
 typedef struct
 {
@@ -45,7 +53,20 @@ typedef struct
 	int64_t next_poll;
 	int64_t next_toast;
 	int64_t next_start;
+	/* No new codes after this; 0 until the first code arrives. */
+	int64_t window_end;
+	/* No more pairing in this run. */
+	int     done;
 } gwm_pair_t;
+
+/* Whether to ask for a new code now: 1 yes, 0 not yet, -1 never again in
+ * this run. The window starts with the first code, not with the payload: a
+ * console that comes online later still gets its full 20 minutes. */
+static int gwm_pair_may_start(const gwm_pair_t *p, int64_t now)
+{
+	if(p->done || (p->window_end && now >= p->window_end)) return -1;
+	return now >= p->next_start;
+}
 
 /* {"code":"123456","secret":"…","expiresAt":"…","interval":5} */
 static int gwm_pair_parse_start(const char *body, gwm_pair_t *p)
@@ -126,9 +147,19 @@ static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *pro
 	char body[512], resp[1024];
 	int64_t now = gwm_now_raw();
 
+	if(p->done) return 0;
+
 	if(!p->active)
 	{
-		if(now < p->next_start) return 0;
+		int may = gwm_pair_may_start(p, now);
+		if(may < 0)
+		{
+			gwm_log("pairing: no code entered in %d min, stopping until the next start", GWM_PAIR_WINDOW_SEC / 60);
+			p->done = 1;
+			gwm_toast(GWM_PRODUCT ": not linked, open the tile in Media for a new code");
+			return 0;
+		}
+		if(!may) return 0;
 
 		size_t len = gwm_pair_start_body(body, sizeof(body), profile, gwm_console_name(), gwm_console_id());
 		int code = gwm_http_request(cfg, GWM_PATH_PAIR, body, len, NULL, resp, sizeof(resp));
@@ -141,6 +172,7 @@ static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *pro
 		}
 
 		gwm_log("pairing: code %s", p->code);
+		if(!p->window_end) p->window_end = now + GWM_PAIR_WINDOW_SEC;
 		p->active = 1;
 		p->next_poll = now + p->interval;
 		p->next_toast = now;

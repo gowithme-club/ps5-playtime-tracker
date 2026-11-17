@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gowithme.club</title>
+<style>
+/* Values from gowithme.club's tokens.css; the page stays self-contained
+   because the console may be offline, and the console's browser is not
+   assumed to know color-mix(), aspect-ratio or flex gap. */
+:root {
+  --background: #16181a;
+  --surface: #202225;
+  --line: #ffffff24;
+  --text: #f2f3f4;
+  --muted: #9a9ea3;
+  --brand: #c7f547;
+  /* color-mix(in srgb, white 12%, --brand), as the site's primary hover */
+  --brand-hover: #cef65d;
+  --warning: #ffb86f;
+  --white: #ffffff;
+  --font-main: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --radius-control: 0.5rem;
+  --radius-surface: 1rem;
+  --dur-1: 150ms;
+  --dur-2: 260ms;
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  /* Read from a couch: the scale follows the browser window, which the
+     console opens over the home screen rather than full screen. */
+  font-size: clamp(14px, min(1.45vw, 2.7vh), 30px);
+  --qr: clamp(180px, min(30vw, 54vh), 520px);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  flex-direction: column;
+  padding: clamp(1rem, 5vh, 3rem) clamp(1.5rem, 5vw, 4.5rem) clamp(0.75rem, 3vh, 2rem);
+  background: var(--background);
+  color: var(--text);
+  font: 400 1rem/1.4 var(--font-main);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+::selection { background: var(--brand); color: var(--background); }
+
+.wordmark { display: block; width: auto; height: 1.6rem; }
+
+.stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 0;
+}
+.copy { flex: 1 1 auto; max-width: 32rem; margin-right: clamp(2rem, 6vw, 6rem); }
+
+h1 {
+  margin: 0;
+  font-weight: 700;
+  font-size: 2.6rem;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.lead { margin: 0.9rem 0 0; color: var(--muted); font-size: 1.15rem; line-height: 1.45; }
+
+.status { display: flex; align-items: center; margin: 1rem 0 0; font-size: 1.15rem; }
+.dot { flex: none; width: 0.6rem; height: 0.6rem; margin-right: 0.65rem; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--brand); box-shadow: 0 0 0 0 #c7f54766; animation: live 2.6s var(--ease-out) infinite; }
+.dot.late { background: var(--warning); }
+@keyframes live { 0% { box-shadow: 0 0 0 0 #c7f54766; } 70%, 100% { box-shadow: 0 0 0 0.6rem #c7f54700; } }
+
+.code {
+  display: flex;
+  margin: 1.8rem 0 0;
+  font: 600 4.4rem/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.code span + span { margin-left: 0.35em; }
+
+.hint { margin: 1rem 0 0; color: var(--muted); font-size: 1.05rem; line-height: 1.45; }
+.hint b { color: var(--text); font-weight: 600; }
+
+.actions { margin-top: 1.8rem; }
+/* Sized for a cursor steered with a stick: a big target, and a ring on
+   hover so it is clear before the press that the press will land. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0 2.1rem;
+  border: 2px solid var(--brand);
+  border-radius: var(--radius-control);
+  background: var(--brand);
+  color: var(--background);
+  font: 700 1.15rem/1 var(--font-main);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.button:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
+.button:focus { outline: none; }
+.button:hover, .button:focus-visible { outline: 3px solid var(--brand); outline-offset: 4px; }
+.button[disabled] { opacity: 0.5; cursor: default; }
+
+.qr { flex: none; margin: 0; text-align: center; }
+.qr-well {
+  width: var(--qr);
+  height: var(--qr);
+  border-radius: var(--radius-surface);
+  background: var(--white);
+  overflow: hidden;
+  box-shadow: 0 1.2rem 2.5rem -1rem #00000099;
+}
+.qr-well svg { display: block; width: 100%; height: 100%; }
+.qr-well.wait { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.qr-well.fresh svg { animation: appear var(--dur-2) var(--ease-out); }
+@keyframes appear { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.qr figcaption { margin-top: 0.9rem; color: var(--muted); font-size: 1rem; }
+
+.foot { flex: none; text-align: right; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header><svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2676 440" role="img" aria-label="gowithme.club"><g id="wordmark"><g id="g-layer"><path id="g" d="M119.61328 121.72966C78.81224 127.13804 47.45242 153.90555 35.51787 193.51039 31.1168 208.11884 30.79727 233.43596 34.83009 248.0943 46.86561 291.84601 81.33053 318.96632 127.24892 320.8194 152.07544 321.82077 167.78505 317.05978 181.74611 304.29966L188.26634 298.34011 188.26634 306.57681C188.26634 323.91737 183.08366 336.91507 173.15899 344.46043 153.87745 359.12233 118.78889 356.95922 93.195 339.53195 78.93816 329.82466 81.28539 329.14876 61.66769 348.60016 43.89712 366.21987 42.40396 368.24757 44.42454 372.02262 46.12082 375.19306 61.41586 386.62395 70.82262 391.75318 92.44902 403.544 109.61852 407.25729 142.53327 407.26441 185.83239 407.27273 208.53263 399.84259 229.25268 378.87783 244.03575 363.92015 251.19862 347.80785 253.59812 324.11099 254.48071 315.38845 254.80025 281.13259 254.55673 220.96449L254.19325 130.87865 251.38868 128.60744C248.81456 126.52391 246.40318 126.33741 221.98884 126.33741 190.3867 126.33741 190.64209 126.24001 190.64209 138.21614 190.64209 142.13611 190.46509 145.34337 190.25009 145.34337 190.0339 145.34337 186.95968 142.64452 183.41983 139.34699 168.35642 125.31584 143.77341 118.52834 119.61328 121.72966M130.33382 181.63286C117.20902 185.16678 107.43284 193.25619 102.03277 205.05295 92.45496 225.97256 101.97813 250.09587 123.86229 260.35314 134.49375 265.33627 153.54128 265.07494 164.68827 259.79366 179.2694 252.88499 187.94324 240.67486 189.17507 225.32636 191.55913 195.62837 161.43706 173.25955 130.33382 181.63286" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="o-layer"><path id="o" d="M363.47557 121.76125C310.97232 128.83726 275.13206 165.74982 272.7719 215.1747 269.87559 275.85417 313.47099 320.62686 375.76226 320.94631 408.50739 321.11386 432.57366 311.56487 454.03292 289.8878 497.28764 246.19635 489.74809 173.1788 438.45787 139.05085 417.91118 125.38024 387.92608 118.46618 363.47557 121.76125M363.26781 179.59692C333.07496 190.03055 324.35029 229.89191 347.18119 253.10035 362.86794 269.04623 389.24187 269.6427 405.89033 254.42731 427.2848 234.87361 424.34382 199.07467 400.09436 183.88721 389.76796 177.41994 374.66204 175.65959 363.26781 179.59692" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="w-gamepad-layer"><path id="w-gamepad" d="M569.24209 121.2112C549.10203 123.77435 534.78181 130.05297 522.16209 141.85313 500.15351 162.43259 494.70953 192.822 505.82043 233.07413 520.13419 284.92934 539.87579 312.87622 566.64987 319.18716 593.83858 325.59609 616.59349 314.48196 633.80963 286.38322 648.3614 262.63429 651.39948 259.82668 661.50559 260.79701 670.21381 261.6338 672.06079 263.6477 687.16826 288.77298 701.20524 312.11913 717.9723 322.09277 740.52366 320.51181 762.05191 319.003 778.92343 306.44359 792.31855 281.95803 809.35377 250.81583 821.81625 212.28574 821.76886 190.90395 821.68055 151.40568 792.08485 121.65814 752.86229 121.64414 726.93899 121.63552 710.0427 132.68396 693.6332 160.37454 684.51142 175.76848 679.35821 181.73048 672.8125 184.46486 655.85052 191.55227 642.53724 184.20316 631.71281 161.77565 621.97178 141.59035 615.21068 133.56814 602.59527 127.22167 593.91074 122.85355 578.36172 120.05133 569.24209 121.2112M565.71508 168.99984C561.29742 171.69329 560.08801 174.83368 560.08801 183.60437L560.08801 190.53456 553.24829 190.53456C541.33936 190.53456 536.39508 194.00988 536.39508 202.38102 536.39508 210.74785 541.12182 214.22748 552.48904 214.22748L559.86723 214.22748 560.24632 223.47526C560.71802 234.96095 563.11424 237.92041 571.94416 237.92041 582.35828 237.92041 584.85789 234.90926 584.85789 222.36062L584.85789 214.4418 594.52137 214.06486C605.86382 213.62331 608.32681 212.0402 609.33268 204.53923 610.65518 194.6819 605.42119 190.55286 591.58883 190.54102L584.85789 190.53456 584.85789 182.38634C584.85789 172.8424 583.83155 170.43326 578.88296 168.36551 573.86652 166.26977 569.87749 166.46146 565.71508 168.99984M741.20214 177.45498C730.01584 181.42355 723.38721 190.29978 723.39259 201.30407 723.40013 216.59247 734.34303 227.1509 750.17852 227.1509 758.89429 227.1509 763.83534 224.85053 769.88781 217.97527 786.93918 198.60307 765.79324 168.73275 741.20214 177.45498" fill="#C7F547" fill-rule="evenodd"/></g>
+<g id="i-layer"><path id="i" d="M859.41821 34.16535C845.97565 39.62559 838.71623 50.26655 837.83679 65.80149 835.63232 104.71956 887.80637 117.89908 904.38941 82.61354 912.52002 65.31234 905.66494 44.43402 888.99584 35.73402 880.77446 31.44246 867.81406 30.75571 859.41821 34.16535M842.32472 123.35812C840.00708 125.72679 839.967 127.36173 839.98468 220.64728 839.99529 272.83161 840.39257 316.12318 840.86883 316.85209 843.19 320.40511 847.44334 320.94848 872.95154 320.94848L899.01734 320.94848 901.91026 317.99065 904.80437 315.03402 904.80437 220.40029C904.80437 127.37378 904.76429 125.72679 902.44665 123.35812 900.22213 121.08462 898.5175 120.94848 872.38568 120.94848 846.25386 120.94848 844.54923 121.08462 842.32472 123.35812" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="t-layer"><path id="t" d="M954.05342 73.94148C952.38651 75.78286 952.10241 79.26404 952.10241 97.87237 952.10241 113.23647 951.68627 120.06325 950.68777 121.06175 949.81188 121.93764 945.43831 122.48345 939.19388 122.49406 923.78262 122.52236 923.80974 122.47284 923.80974 150.42954 923.80974 177.29697 923.49144 176.704 937.93839 176.704 945.87448 176.704 948.84404 177.15079 950.25042 178.55599 951.86781 180.17457 952.10477 186.03469 952.12009 224.8263 952.13895 273.78441 952.59635 278.02123 959.29936 291.29993 966.27939 305.12679 979.29166 314.77813 996.52897 318.91475 1006.68486 321.35146 1033.12908 321.66622 1045.06623 319.49122 1058.497 317.04508 1058.21525 317.66398 1058.1174 290.75883 1058.07143 278.27705 1057.61875 267.00478 1057.11184 265.70803 1056.26541 263.54364 1055.08891 263.34913 1042.7533 263.33498 1017.2451 263.30551 1016.78653 262.4025 1017.21681 213.03886L1017.52921 177.29343 1035.80156 176.99282C1059.71476 176.59908 1058.19992 178.33554 1058.19992 151.30426 1058.19992 131.55243 1057.32992 125.33158 1054.29436 123.40297 1053.52456 122.91256 1045.44229 122.50467 1036.33205 122.49406 1025.04327 122.48228 1019.31872 122.02606 1018.35441 121.06175 1017.35827 120.06561 1016.93978 113.33903 1016.93978 98.33684 1016.93978 69.07868 1020.23352 71.78535 984.63662 71.78535 958.39517 71.78535 955.84176 71.96571 954.05342 73.94148" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="h-layer"><path id="h" d="M1082.45893 43.76518C1076.28759 46.50839 1076.62946 38.92124 1076.29113 180.54964 1076.06832 273.11383 1076.35479 313.023 1077.25426 315.19564 1079.421 320.4286 1082.44478 320.94848 1110.71741 320.94848 1134.88761 320.94848 1137.28541 320.7634 1139.83882 318.69568L1142.62211 316.44405 1143.21155 261.81562C1143.79862 207.37227 1143.81041 207.16715 1146.61374 200.96516 1158.26796 175.17403 1195.15217 174.90879 1203.88989 200.55373 1205.40355 204.99568 1205.69119 214.54328 1205.69119 260.31611 1205.69119 312.18011 1205.79965 314.92686 1207.94282 317.57576 1210.17322 320.33194 1210.45026 320.36259 1237.0159 320.71742 1266.25519 321.10881 1269.411 320.59836 1271.68739 315.10251 1274.12409 309.22117 1272.62576 184.55894 1269.99454 174.18025 1261.18137 139.41917 1237.61122 121.32718 1200.97575 121.2034 1179.81401 121.13149 1167.88393 124.99933 1152.21333 137.01075 1147.95764 140.27148 1144.19118 142.94042 1143.84342 142.94042 1143.49565 142.94042 1143.21155 121.77986 1143.21155 95.91683 1143.21155 52.8601 1143.03707 48.68339 1141.14854 46.41762 1139.19281 44.07169 1137.67443 43.91018 1111.97172 43.32075 1096.81982 42.97299 1083.79929 43.16986 1082.45893 43.76518" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="m-layer"><path id="m" d="M1402.82588 121.79637C1389.60495 123.74149 1376.28971 130.10498 1364.4115 140.15242 1361.06589 142.98286 1358.015 145.29815 1357.63305 145.29815 1357.24992 145.29815 1356.93634 142.18713 1356.93634 138.38413 1356.93634 133.17356 1356.33394 130.70384 1354.49256 128.36381L1352.04996 125.25751 1324.37855 125.25751 1296.70714 125.25751 1293.81421 128.15161 1290.92011 131.04454 1290.92011 223.10299 1290.92011 315.16145 1293.81421 318.05438 1296.70714 320.94848 1323.74432 320.94848C1348.60061 320.94848 1351.00549 320.76694 1353.56362 318.69685L1356.34691 316.44405 1356.96699 260.63794C1357.66134 198.14178 1357.32183 200.63508 1366.50634 190.66898 1380.24715 175.76346 1404.771 180.68285 1409.96624 199.38666 1410.68299 201.96601 1411.15335 225.69295 1411.15689 259.40603L1411.16396 315.16145 1414.05807 318.05438 1416.95099 320.94848 1444.76151 320.94848 1472.57203 320.94848 1475.46495 318.05438 1478.35906 315.16145 1478.35906 261.68359C1478.35906 199.63069 1478.44393 198.97052 1487.61901 190.07248 1502.82043 175.32846 1527.15566 181.39016 1531.35359 200.96516 1532.11041 204.49467 1532.58667 227.65104 1532.58667 260.93855L1532.58667 315.16145 1535.48078 318.05438 1538.3737 320.94848 1565.59479 320.94848 1592.81588 320.94848 1595.7701 317.99425 1598.72433 315.04003 1598.31644 245.789C1597.91681 177.68382 1597.86494 176.39179 1595.22429 167.70005 1587.49685 142.26965 1570.2619 126.8419 1544.37529 122.18539 1519.92335 117.78706 1497.29275 125.1632 1478.66792 143.60294L1468.95764 153.21774 1466.10951 148.35729C1454.72524 128.93202 1428.66534 117.99454 1402.82588 121.79637" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="e-layer"><path id="e" d="M1701.67917 121.79694C1667.23805 127.21423 1635.43391 152.18475 1623.47423 183.19711 1617.88174 197.69936 1616.2652 208.44749 1616.83059 227.38185 1617.65763 255.07695 1625.19771 272.94765 1643.79079 291.28022 1664.58628 311.78335 1688.47608 320.8683 1721.80461 320.94793 1760.63918 321.04121 1786.80077 309.259 1806.16516 282.9552 1811.24458 276.05332 1811.74285 274.70526 1810.14338 272.18431 1808.8465 270.13889 1766.251 252.60151 1762.58221 252.60151 1760.58798 252.60151 1757.71666 254.34547 1754.02398 257.80038 1739.76291 271.13999 1718.2803 274.19219 1699.89198 265.49404 1690.59317 261.0949 1681.56169 250.46622 1681.44451 243.78504 1681.42518 242.66336 1695.45758 242.36303 1747.88658 242.36303L1814.3548 242.36303 1816.85072 239.2346C1820.42964 234.75129 1819.50931 207.55333 1815.21484 190.84299 1806.51326 156.98205 1782.32997 132.84426 1748.13344 123.88672 1737.69474 121.15305 1712.87324 120.03592 1701.67917 121.79694M1713.27254 173.08377C1698.3346 175.4955 1684.82663 186.72825 1682.94843 198.29888L1682.25904 202.54671 1719.31325 202.54671C1739.69352 202.54671 1756.59042 202.1622 1756.86345 201.6935 1758.48113 198.9075 1753.64402 189.26853 1747.58739 183.2119 1738.55363 174.17815 1727.21736 170.8313 1713.27254 173.08377" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="period-layer"><path id="period" d="M1865.79757 249.71464C1852.71314 252.6268 1842.13004 262.70469 1838.29771 275.9004 1832.84923 294.66026 1846.04801 316.00013 1865.65046 320.12414 1878.53084 322.83424 1890.69232 318.80688 1899.6759 308.8565 1906.25841 301.56583 1909.06754 294.25819 1909.0625 284.43635 1909.05747 274.64638 1905.90022 267.10326 1898.70963 259.70256 1890.38249 251.13164 1877.28548 247.15725 1865.79757 249.71464" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="c-layer"><path id="c" d="M2016.0278 121.27461C1966.38289 126.82984 1928.99483 167.00254 1927.14767 216.77498 1926.1086 244.76391 1934.58086 268.59417 1952.43444 287.90469 1976.47729 313.90766 2009.45792 324.98585 2046.90119 319.63475 2079.9602 314.91088 2107.65107 294.2584 2122.88382 262.96698 2124.4537 259.74205 2124.26429 255.99968 2122.43316 254.08693 2120.97074 252.55822 2076.33711 237.97157 2072.05793 237.62351 2068.21575 237.31082 2066.09843 238.40462 2063.11244 242.24439 2052.31207 256.13369 2044.1153 260.70183 2029.981 260.70804 2021.83352 260.71176 2016.40424 259.17188 2009.81001 254.98592 1989.44427 242.05888 1985.14312 212.39482 2000.98268 194.10613 2017.71881 174.78135 2046.29557 176.45027 2061.26765 197.62701 2063.73292 201.11438 2067.14581 203.31935 2070.11814 203.3454 2070.96721 203.35285 2075.37583 202.21438 2079.91507 200.81596 2084.45491 199.41692 2095.38294 196.08403 2104.20018 193.40941 2122.12797 187.9702 2123.49716 187.19343 2123.49716 182.46088 2123.49716 177.06573 2113.57673 161.32137 2103.61355 150.90455 2087.67661 134.24135 2068.10888 124.69064 2043.35589 121.493 2038.68068 120.88933 2020.75229 120.74602 2016.0278 121.27461" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="l-layer"><path id="l" d="M2147.78445 44.58091C2145.92778 45.59277 2144.69099 46.88824 2143.65074 48.91197L2142.16635 51.79933 2141.99238 180.7685C2141.86176 277.08537 2141.99238 310.41973 2142.50598 312.43191 2143.35148 315.74147 2146.66463 319.45784 2149.5378 320.3202 2150.80368 320.70005 2162.13725 320.95478 2177.49468 320.94836 2201.33981 320.93874 2203.50523 320.84698 2205.69796 319.75363 2208.42567 318.39336 2210.39752 316.2766 2211.27865 313.76459 2211.99116 311.73124 2212.28863 52.60587 2211.58028 50.51606 2210.67184 47.8353 2208.69761 45.51193 2206.3505 44.35955 2204.09364 43.25208 2201.96979 43.16418 2177.17524 43.15134 2150.61131 43.13723 2150.41596 43.14685 2147.78445 44.58091" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="u-layer"><path id="u" d="M2235.04944 122.38828C2233.73606 123.18192 2232.08721 124.93513 2231.33611 126.33618L2229.98532 128.85706 2230.16463 190.92898C2230.3392 251.66129 2230.37067 253.12758 2231.60864 258.88 2235.11951 275.18844 2240.48347 286.30058 2250.08565 297.15873 2275.96796 326.42691 2323.71345 329.1207 2350.78682 302.84021 2353.18262 300.51378 2353.28949 300.63033 2353.63803 305.94698 2353.92422 310.31038 2355.67698 313.17075 2359.07325 314.81629 2361.32001 315.90445 2363.39755 315.99566 2386.14781 316.00516 2412.26702 316.01656 2413.92478 315.85632 2417.08533 313.01938 2420.79925 309.68586 2420.5855 315.48325 2420.5855 218.12218 2420.5855 118.95533 2420.90672 126.51543 2416.54026 122.96277L2414.44372 121.25642 2387.03844 121.25642 2359.63315 121.25642 2357.4523 123.03117C2353.26456 126.43816 2353.52224 122.79302 2353.31502 181.54345 2353.17906 220.18069 2352.93562 235.35981 2352.42024 237.3043 2350.36407 245.06583 2344.56429 253.31442 2338.83694 256.6207 2324.96686 264.62862 2306.51716 260.12143 2299.87484 247.10217 2296.5047 240.49721 2296.50945 240.58715 2296.49995 183.14972 2296.49045 126.07966 2296.58901 127.91902 2293.34534 124.2137 2290.45732 120.91313 2290.69364 120.93909 2263.1221 120.94986 2237.55033 120.96063 2237.40011 120.96823 2235.04944 122.38828" fill="#F3F5EB" fill-rule="evenodd"/></g>
+<g id="b-layer"><path id="b" d="M2443.91081 44.65263C2442.1438 45.68021 2440.89276 47.05576 2439.95819 48.99863L2438.59078 51.84178 2438.59078 182.10337 2438.59078 309.08694 2439.93148 311.20007C2440.66892 312.36235 2442.46205 313.94254 2443.91675 314.71242 2446.53461 316.09733 2446.81308 316.11163 2471.52153 316.1079 2486.07027 316.10604 2497.3593 315.8492 2498.586 315.49225 2502.59324 314.32623 2505.68491 309.70384 2505.68491 304.87748 2505.68491 303.53174 2505.79773 302.4304 2505.93548 302.4304 2506.07323 302.4304 2508.41143 304.18657 2511.13082 306.33266 2524.36499 316.77642 2539.43979 321.61335 2556.45083 320.87519 2610.34998 318.53632 2647.52726 270.83858 2642.91201 209.94716 2639.43262 164.04725 2613.66075 131.77572 2573.13767 122.57758 2564.44869 120.58789 2546.45618 120.56178 2538.55332 122.52908 2528.36214 125.04331 2518.1757 130.31432 2510.3821 137.10767 2508.4803 138.76496 2506.8457 140.12127 2506.75011 140.12127 2506.65392 140.12127 2506.66579 121.56268 2506.77564 97.78002 2506.98939 51.53363 2506.94901 50.77698 2504.06397 47.00679 2501.11539 43.15369 2501.07739 43.14912 2472.54694 43.14912 2446.49898 43.14912 2446.49601 43.14912 2443.91081 44.65263M2533.12582 181.79865C2516.52507 186.35388 2505.96457 200.38957 2505.22416 218.88287 2504.87741 227.5406 2505.9907 233.27925 2509.40359 240.42023 2517.43292 257.22265 2537.74403 265.67018 2554.89579 259.34075 2580.84459 249.76451 2588.43039 212.43465 2568.63465 191.7306 2559.25928 181.92427 2546.08983 178.24091 2533.12582 181.79865" fill="#F3F5EB" fill-rule="evenodd"/></g></g></svg></header>
+<main class="stage" aria-live="polite">
+  <section class="copy">
+    <h1 id="title"></h1>
+    <p class="status" id="status" hidden><span class="dot" id="dot"></span><span id="statusText"></span></p>
+    <p class="lead" id="lead"></p>
+    <div class="code" id="code" hidden></div>
+    <p class="hint" id="hint" hidden></p>
+    <div class="actions" id="actions" hidden>
+      <a class="button" id="open" hidden></a>
+      <button class="button" id="pair" type="button" hidden></button>
+    </div>
+  </section>
+  <figure class="qr" id="qrBox" hidden>
+    <div class="qr-well" id="qr"></div>
+    <figcaption id="qrCaption" hidden></figcaption>
+  </figure>
+</main>
+<footer class="foot" id="version"></footer>
+<script>
+"use strict";
+var ru = /^ru\b/i.test(navigator.language || "");
+var T = ru ? {
+  link: "Привяжите PS5\u00a0к\u00a0профилю",
+  about: "Время в\u00a0играх и\u00a0трофеи с\u00a0этой консоли появятся в\u00a0профиле gowithme.club рядом с\u00a0PSN, Steam, Xbox и\u00a0Switch.",
+  scan: "Отсканируйте QR-код телефоном или\u00a0введите код на\u00a0<b>gowithme.club/ps5</b>",
+  getting: "Получаем код…",
+  showCode: "Показать код",
+  offline: "Нет связи с\u00a0gowithme.club",
+  offlineText: "Проверьте подключение консоли к\u00a0интернету. Если обновления заблокированы через\u00a0DNS, разрешите gowithme.club.",
+  linked: "Консоль привязана",
+  last: "Последний отчёт: ",
+  first: "Ждём первый отчёт",
+  goesTo: function (nick) { return nick ? "Время и\u00a0трофеи уходят в\u00a0профиль " + nick + "." : "Время и\u00a0трофеи уходят на\u00a0gowithme.club."; },
+  queued: "Отчёты ждут на\u00a0консоли и\u00a0уйдут, когда появится связь.",
+  onPhone: "Откройте на\u00a0телефоне",
+  profile: "Открыть профиль",
+  site: "Открыть gowithme.club",
+  down: "Трекер не запущен",
+  downText: "Запустите gowithme.club в\u00a0Payload Manager.",
+  now: "только что",
+  min: function (n) { return n + " мин назад"; },
+  hour: function (n) { return n + " ч назад"; }
+} : {
+  link: "Link this PS5 to\u00a0your\u00a0profile",
+  about: "Playtime and trophies from this console will appear on your gowithme.club profile, next to PSN, Steam, Xbox and Switch.",
+  scan: "Scan the QR code with your phone or enter the code at <b>gowithme.club/ps5</b>",
+  getting: "Getting a code…",
+  showCode: "Show code",
+  offline: "Can't reach gowithme.club",
+  offlineText: "Check the console's internet connection. If you block updates through DNS, let gowithme.club through.",
+  linked: "Console linked",
+  last: "Last report: ",
+  first: "Waiting for the first report",
+  goesTo: function (nick) { return nick ? "Playtime and trophies go to " + nick + "'s profile." : "Playtime and trophies go to gowithme.club."; },
+  queued: "Reports are waiting on the console and will go out once it's back online.",
+  onPhone: "Open on your phone",
+  profile: "Open profile",
+  site: "Open gowithme.club",
+  down: "The tracker isn't running",
+  downText: "Start gowithme.club in Payload Manager.",
+  now: "just now",
+  min: function (n) { return n + " min ago"; },
+  hour: function (n) { return n + " h ago"; }
+};
+document.documentElement.lang = ru ? "ru" : "en";
+
+function $(id) { return document.getElementById(id); }
+function text(id, value) { var el = $(id); el.hidden = !value; el.textContent = value || ""; }
+
+function ago(s) {
+  if (s < 60) return T.now;
+  if (s < 3600) return T.min(Math.floor(s / 60));
+  return T.hour(Math.floor(s / 3600));
+}
+
+// The nickname is the last part of the profile address.
+function nickFrom(url) {
+  try { return decodeURIComponent(String(url || "").split("/").pop()); } catch (e) { return ""; }
+}
+
+// Rows of 0 and 1 become one path of horizontal runs, with the quiet zone
+// the code needs around it.
+function qrSvg(rows) {
+  var n = rows.length, q = 3, d = "";
+  for (var y = 0; y < n; y++) {
+    var row = rows[y];
+    for (var x = 0; x < n; x++) {
+      if (row.charAt(x) !== "1") continue;
+      var w = 1;
+      while (row.charAt(x + w) === "1") w++;
+      d += "M" + (x + q) + " " + (y + q) + "h" + w + "v1h-" + w + "z";
+      x += w - 1;
+    }
+  }
+  var size = n + 2 * q;
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + " " + size +
+    '" shape-rendering="crispEdges" role="img" aria-label="QR"><rect width="' + size + '" height="' + size +
+    '" fill="#fff"/><path fill="#16181a" d="' + d + '"/></svg>';
+}
+
+var shownQr = null;
+
+function showQr(rows, key, caption) {
+  var box = $("qrBox"), well = $("qr");
+  box.hidden = rows === undefined;
+  text("qrCaption", caption);
+  if (rows && rows.length) {
+    well.className = "qr-well";
+    if (shownQr !== key) {
+      well.innerHTML = qrSvg(rows);
+      well.className = "qr-well fresh";
+      shownQr = key;
+    }
+  } else {
+    // Room kept while the code is on its way, so nothing jumps when it lands.
+    well.innerHTML = "";
+    well.className = "qr-well wait";
+    shownQr = null;
+  }
+}
+
+function render(s) {
+  var state = s.state;
+  if (s.version) $("version").textContent = "v" + s.version;
+
+  var open = $("open"), pair = $("pair");
+  open.hidden = true;
+  pair.hidden = true;
+  $("status").hidden = true;
+  text("code", "");
+  $("hint").hidden = true;
+
+  if (state === "linked") {
+    text("title", T.linked);
+    var fresh = s.syncAgo >= 0 && s.syncAgo < 600;
+    var stuck = s.queued > 0 && (s.syncAgo < 0 || s.syncAgo > 300);
+    $("dot").className = "dot" + (stuck ? " late" : fresh ? " live" : "");
+    text("statusText", s.syncAgo >= 0 ? T.last + ago(s.syncAgo) : T.first);
+    $("status").hidden = false;
+    text("lead", stuck ? T.queued : T.goesTo(nickFrom(s.profileUrl)));
+    open.textContent = s.profileUrl ? T.profile : T.site;
+    open.href = s.profileUrl || "https://gowithme.club";
+    open.hidden = false;
+    if (s.profileQr && s.profileQr.length) showQr(s.profileQr, s.profileUrl, T.onPhone);
+    else showQr(undefined);
+  } else if (state === "offline" || state === "down") {
+    text("title", state === "down" ? T.down : T.offline);
+    text("lead", state === "down" ? T.downText : T.offlineText);
+    showQr(undefined);
+  } else {
+    text("title", T.link);
+    text("lead", T.about);
+    if (state === "code" && s.code) {
+      $("code").innerHTML = "<span>" + s.code.slice(0, 3) + "</span><span>" + s.code.slice(3) + "</span>";
+      $("code").hidden = false;
+      $("hint").innerHTML = T.scan;
+      $("hint").hidden = false;
+      showQr(s.qr, s.code, "");
+    } else if (state === "stopped") {
+      pair.textContent = T.showCode;
+      pair.hidden = false;
+      showQr(undefined);
+    } else {
+      text("hint", T.getting);
+      showQr(null, "", "");
+    }
+  }
+  $("actions").hidden = open.hidden && pair.hidden;
+}
+
+var first = true, misses = 0;
+
+function load() {
+  var url = "/state?lang=" + (ru ? "ru" : "en");
+  // The first request tells the log what the console's browser looks like.
+  if (first) url += "&first=1&vw=" + window.innerWidth + "&vh=" + window.innerHeight;
+  first = false;
+  fetch(url, { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (s) { misses = 0; render(s); }, function () {
+      // A new copy takes over the port within seconds: one miss is that,
+      // two in a row mean the tracker is gone.
+      if (++misses >= 2) render({ state: "down" });
+    })
+    .then(function () { setTimeout(load, 3000); });
+}
+
+$("pair").addEventListener("click", function () {
+  var pair = $("pair");
+  pair.disabled = true;
+  fetch("/pair", { method: "POST" })
+    .catch(function () {})
+    .then(function () { pair.disabled = false; render({ state: "connecting" }); });
+});
+
+load();
+</script>
+</body>
+</html>

@@ -29,14 +29,18 @@ jailbroken PS5, for PS5 and PS4 games, and syncs them to your
 - Sessions played while the payload was stopped, recovered from the system journal.
 - Live “playing now” status on your profile while the payload runs.
 - Reports queue on the console while it is offline.
+- A gowithme.club tile in Media: the pairing code with a QR code for your
+  phone, and once linked, the last report and your profile.
 
 ## Install
 
 1. Download `gowithme.club_v<version>.elf` from the
    [latest release](https://github.com/gowithme-club/ps5-playtime-tracker/releases/latest).
-2. Load it with Payload Manager, or send it to elfldr on port 9021.
-   The console shows a six-digit code.
-3. Enter the code at [gowithme.club/ps5](https://gowithme.club/ps5).
+2. Load it with Payload Manager. The console shows a six-digit code, and
+   the gowithme.club tile appears in Media.
+3. Open the tile and scan its QR code with your phone, or enter the code at
+   [gowithme.club/ps5](https://gowithme.club/ps5). Sign in with Google or
+   Telegram; a new account is created on first sign-in.
 
 No config file is needed.
 
@@ -57,11 +61,17 @@ No. Sessions stay in the system journal and are picked up on the next start.
 PS4 trophy notifications disappear after a while, so run the payload
 regularly if you play PS4 games.
 
+**Can I use elfldr?**
+Yes, send the file to port 9021. Under elfldr the console may not give the
+payload profile names, and the site then shows profiles by their id.
+
 **Does it survive a reboot?**
 No. Load it again after each jailbreak, or add it to your loader's autoload.
 
-**Does it work offline?**
-Yes. Reports wait in a queue on the console and go out once it is online.
+**Does it need internet?**
+To link the console, yes: it has to reach gowithme.club over HTTP. If you
+block updates through DNS, let gowithme.club through. Once linked, reports
+wait in a queue while the console is offline and go out once it is back.
 
 **What does it send?**
 The game's title ID and name, session times, unlocked trophies, the console
@@ -69,8 +79,9 @@ profile name, the console's name from its settings and an anonymous console
 identifier, a hash of its hardware id.
 
 **How do I remove it?**
-Stop loading the payload and delete `/data/gowithme.club` on the console.
-To unlink the console, remove it in your gowithme.club settings.
+Stop loading the payload, delete the gowithme.club tile in Media (Options,
+then Delete) and delete `/data/gowithme.club` on the console. To unlink the
+console, remove it in your gowithme.club settings.
 
 ## Build from source
 
@@ -101,7 +112,7 @@ pull requests are welcome.
 
 ## License
 
-[MIT](LICENSE). SQLite is bundled under its public-domain dedication.
+[MIT](LICENSE). SQLite is bundled under its public-domain dedication, and Project Nayuki's QR Code generator under the MIT license.
 
 Unofficial homebrew, not affiliated with or endorsed by Sony Interactive
 Entertainment. PlayStation and PS5 are trademarks of their respective owners.

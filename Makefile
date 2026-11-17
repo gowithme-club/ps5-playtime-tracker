@@ -31,12 +31,16 @@ SQLITE_FLAGS := -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION \
                 -DSQLITE_OMIT_WAL -DSQLITE_OMIT_SHARED_CACHE \
                 -DSQLITE_OMIT_PROGRESS_CALLBACK -DSQLITE_OMIT_DEPRECATED
 
-CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -Wno-unused-function -Isrc -I$(SQLITE_DIR)
-LIBS    := -lSceUserService -lSceSystemService
+QR_DIR  := third_party/qrcodegen
+
+CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -Wno-unused-function -Isrc -I$(SQLITE_DIR) -I$(QR_DIR)
+LIBS    := -lSceUserService -lSceSystemService -lSceAppInstUtil -lSceNotification
 
 BUILD   := build
 ELF     := $(BUILD)/$(ELF_NAME)
 HEADERS := $(wildcard src/*.h)
+# Built into the ELF by src/asset.h.
+ASSETS  := assets/icon0.png assets/page.html
 
 .PHONY: all test deploy clean sdk-check
 
@@ -49,8 +53,12 @@ $(BUILD)/sqlite3.o: $(SQLITE_DIR)/sqlite3.c | sdk-check
 	@mkdir -p $(BUILD)
 	$(CC) -O2 -w $(SQLITE_FLAGS) -c -o $@ $<
 
-$(ELF): src/main.c $(HEADERS) $(BUILD)/sqlite3.o | sdk-check
-	$(CC) $(CFLAGS) $(SQLITE_FLAGS) -o $@ src/main.c $(BUILD)/sqlite3.o $(LIBS)
+$(BUILD)/qrcodegen.o: $(QR_DIR)/qrcodegen.c | sdk-check
+	@mkdir -p $(BUILD)
+	$(CC) -O2 -w -c -o $@ $<
+
+$(ELF): src/main.c $(HEADERS) $(ASSETS) $(BUILD)/sqlite3.o $(BUILD)/qrcodegen.o | sdk-check
+	$(CC) $(CFLAGS) $(SQLITE_FLAGS) -o $@ src/main.c $(BUILD)/sqlite3.o $(BUILD)/qrcodegen.o $(LIBS)
 
 sdk-check:
 	@test -x $(CC) || { echo "no SDK in $(PS5_PAYLOAD_SDK), see README.md"; exit 1; }
@@ -61,18 +69,22 @@ deploy: $(ELF)
 
 # Pure-logic tests, built with the host cc. Run from the repository root:
 # some tests read tests/fixtures/.
-TESTS := json time http_config queue session trophy pair reply journal trophy2
+TESTS := json time http_config queue session trophy pair reply journal trophy2 web
 
-test: $(BUILD)/tests/sqlite3.o
+test: $(BUILD)/tests/sqlite3.o $(BUILD)/tests/qrcodegen.o
 	@mkdir -p $(BUILD)/tests
 	@set -e; for t in $(TESTS); do \
-		cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-function -DGWM_HOST_TEST -Isrc \
-		   -o $(BUILD)/tests/$$t tests/$${t}_test.c; \
+		cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-function -DGWM_HOST_TEST -Isrc -I$(QR_DIR) \
+		   -o $(BUILD)/tests/$$t tests/$${t}_test.c $(BUILD)/tests/qrcodegen.o; \
 		./$(BUILD)/tests/$$t; \
 	done
 	cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-function -Isrc -I$(SQLITE_DIR) \
 	   -o $(BUILD)/tests/journal_io tests/journal_io_test.c $(BUILD)/tests/sqlite3.o
 	./$(BUILD)/tests/journal_io
+
+$(BUILD)/tests/qrcodegen.o: $(QR_DIR)/qrcodegen.c
+	@mkdir -p $(BUILD)/tests
+	cc -O0 -w -c -o $@ $<
 
 $(BUILD)/tests/sqlite3.o: $(SQLITE_DIR)/sqlite3.c
 	@mkdir -p $(BUILD)/tests

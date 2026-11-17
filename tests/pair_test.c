@@ -28,6 +28,21 @@ int main(void)
 	CHECK_STR(token, "tok_ABC-123");
 	CHECK(gwm_pair_parse_poll("{\"error\":\"Unknown pairing\"}", "sec", token, sizeof(token)) == -1);
 
+	/* Codes are taken for a window that opens with the first one. */
+	memset(&p, 0, sizeof(p));
+	p.next_start = 100;
+	CHECK(gwm_pair_may_start(&p, 50) == 0);
+	CHECK(gwm_pair_may_start(&p, 100) == 1);
+	/* No code yet (server unreachable): retries never run out. */
+	CHECK(gwm_pair_may_start(&p, 100 + 10 * GWM_PAIR_WINDOW_SEC) == 1);
+	p.window_end = 1000 + GWM_PAIR_WINDOW_SEC;
+	CHECK(gwm_pair_may_start(&p, 1000 + GWM_PAIR_WINDOW_SEC - 1) == 1);
+	CHECK(gwm_pair_may_start(&p, 1000 + GWM_PAIR_WINDOW_SEC) == -1);
+	/* Unlinked on the site: no codes until the next start. */
+	memset(&p, 0, sizeof(p));
+	p.done = 1;
+	CHECK(gwm_pair_may_start(&p, 0) == -1);
+
 	size_t n = gwm_pair_start_body(out, sizeof(out), "Player", "PS5-123", "00112233445566778899aabbccddeeff");
 	CHECK(n == strlen(out));
 	CHECK_STR(out, "{\"platform\":\"ps5-cfw\",\"device\":\"PS5-123\","

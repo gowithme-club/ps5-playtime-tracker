@@ -5,7 +5,7 @@
 #ifndef GWM_VERSION_H
 #define GWM_VERSION_H
 
-#define GWM_VERSION "1.0.1"
+#define GWM_VERSION "1.1.0"
 
 /* The name people see: in Payload Manager (which splits
  * gowithme.club_v<version>.elf into a name and a version), in notifications,

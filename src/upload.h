@@ -77,9 +77,22 @@ static void gwm_batch_fix_times(char *buf, size_t len)
 	}
 }
 
+/* Where the console page sends a linked person: their profile, if the server
+ * names it in the heartbeat answer. Only an https address on the site is
+ * taken. */
+static char gwm_profile_url[256] = "";
+
+static void gwm_take_profile_url(const char *resp)
+{
+	char url[sizeof(gwm_profile_url)];
+	if(!gwm_json_get_str(resp, "profileUrl", url, sizeof(url)) || strncmp(url, "https://gowithme.club/", 22)) return;
+	if(strcmp(url, gwm_profile_url)) gwm_log("profile: %s", url);
+	snprintf(gwm_profile_url, sizeof(gwm_profile_url), "%s", url);
+}
+
 static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s)
 {
-	char body[GWM_RECORD_MAX], sent[GWM_ISO_LEN], started[GWM_ISO_LEN];
+	char body[GWM_RECORD_MAX], sent[GWM_ISO_LEN], started[GWM_ISO_LEN], resp[2048];
 
 	gwm_iso_from_unix(sent, gwm_now());
 	gwm_iso_from_unix(started, s->start + gwm_clock_offset);
@@ -88,7 +101,9 @@ static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s)
 	                                 s->account, s->title_id,
 	                                 s->title[0] ? s->title : s->title_id, started);
 
-	return gwm_http_post(cfg, GWM_PATH_HEARTBEAT, body, len);
+	int code = gwm_http_request(cfg, GWM_PATH_HEARTBEAT, body, len, cfg->token, resp, sizeof(resp));
+	if(code == 200) gwm_take_profile_url(resp);
+	return code;
 }
 
 /* Returns the HTTP status, GWM_HTTP_ERR_*, or 0 if there was nothing to send. */

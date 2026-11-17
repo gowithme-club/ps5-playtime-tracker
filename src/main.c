@@ -31,10 +31,12 @@
 #include "queue.h"
 #include "session.h"
 #include "state.h"
+#include "tile.h"
 #include "trophy2.h"
 #include "upload.h"
 #include "user.h"
 #include "version.h"
+#include "web.h"
 
 #define GWM_STATUS_FILE GWM_DATA_DIR "/status.txt"
 
@@ -54,6 +56,8 @@ static int  gwm_connected_once = 0;
 static int  gwm_announced = 0;
 static time_t gwm_cfg_mtime = 0;
 static gwm_pair_t gwm_pair;
+/* Raw time of the server's last 200, for the console page. */
+static int64_t gwm_last_ok = 0;
 
 /* On the PS5 the main thread's name is also the process name (ki_comm),
  * which sets us apart from all the other payload.elf. The .elf suffix is
@@ -104,8 +108,35 @@ static void gwm_pair_step(void)
 	else if(gwm_pair.next_start > gwm_now_raw())
 	{
 		gwm_announced = 1;
-		gwm_toast(GWM_PRODUCT ": tracker started, server unreachable");
+		gwm_toast(GWM_PRODUCT ": can't reach the server to get a code");
 	}
+}
+
+/* What the console page shows (web.h). */
+static void gwm_web_refresh(void)
+{
+	gwm_web_view_t v;
+	int64_t now = gwm_now_raw();
+
+	memset(&v, 0, sizeof(v));
+	const char *state;
+
+	if(gwm_cfg.valid)                  state = "linked";
+	else if(gwm_pair.done)             state = "stopped";
+	else if(gwm_pair.active)           state = "code";
+	else if(gwm_pair.next_start > now) state = "offline";
+	else                               state = "connecting";
+
+	snprintf(v.state, sizeof(v.state), "%s", state);
+	if(!gwm_cfg.valid && gwm_pair.active) snprintf(v.code, sizeof(v.code), "%s", gwm_pair.code);
+	v.sync_ago = gwm_last_ok ? now - gwm_last_ok : -1;
+	if(v.sync_ago < -1) v.sync_ago = 0;
+	v.queued = gwm_file_size(GWM_SESSION_QUEUE) + gwm_file_size(GWM_TROPHY_QUEUE);
+	if(v.queued < 0) v.queued = 0;
+	/* A profile shows only while the console is linked: after an unlink the
+	 * address names someone the console no longer reports to. */
+	if(gwm_cfg.valid) snprintf(v.profile_url, sizeof(v.profile_url), "%s", gwm_profile_url);
+	gwm_web_publish(&v);
 }
 
 static void gwm_write_status(void)
@@ -138,6 +169,7 @@ static void gwm_write_status(void)
 	fclose(f);
 
 	rename(GWM_STATUS_FILE ".tmp", GWM_STATUS_FILE);
+	gwm_web_refresh();
 }
 
 /* One network pass: a heartbeat and, if the server answered, the queues. */
@@ -157,16 +189,19 @@ static void gwm_net_pass(void)
 	gwm_last_code = code;
 
 	/* The server does not know the key: the connection was removed on the
-	 * site or the console was linked again. The key is erased and pairing
-	 * starts over; the queues are left alone. */
+	 * site or the console was linked again. The key is erased; the queues are
+	 * left alone. No code follows: removing the console on the site is how
+	 * people unlink it, and a code repeating until the next reboot would only
+	 * be noise. Loading the payload again pairs it anew. */
 	if(code == 401)
 	{
-		gwm_log("server rejected the key, pairing again");
+		gwm_log("server rejected the key, pairing on the next start");
 		gwm_config_save_token(GWM_CONFIG_FILE, "");
 		gwm_config_refresh(1);
 		gwm_connected_once = 0;
 		gwm_announced = 1;
-		gwm_toast(GWM_PRODUCT ": console unlinked, showing a new code");
+		gwm_pair.done = 1;
+		gwm_toast(GWM_PRODUCT ": console unlinked");
 		return;
 	}
 
@@ -178,6 +213,7 @@ static void gwm_net_pass(void)
 	}
 
 	if(code != 200) return;
+	gwm_last_ok = gwm_now_raw();
 
 	if(!gwm_connected_once)
 	{
@@ -255,6 +291,10 @@ int main(void)
 	gwm_state_load(&gwm_state);
 	gwm_session_init(&gwm_sess);
 
+	gwm_icon_write();
+	gwm_web_start();
+	gwm_tile_start(GWM_WEB_PORT);
+
 	int64_t next_heartbeat = 0, next_config = 0;
 	int heartbeat_due = 1;
 
@@ -281,7 +321,19 @@ int main(void)
 
 		for(int i = 0; i < GWM_POLL_SEC; i++)
 		{
-			if(!gwm_cfg.valid) gwm_pair_step();
+			/* "Show a code" on the console page: a new pairing window after
+			 * the last one ran out or the console was unlinked. */
+			if(gwm_web_pair_wanted() && !gwm_cfg.valid && gwm_pair.done)
+			{
+				gwm_log("pairing: new code asked for on the console page");
+				memset(&gwm_pair, 0, sizeof(gwm_pair));
+			}
+
+			if(!gwm_cfg.valid)
+			{
+				gwm_pair_step();
+				gwm_web_refresh();
+			}
 
 			if(gwm_instance_stop_requested())
 			{
