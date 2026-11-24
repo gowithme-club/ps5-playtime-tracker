@@ -51,3 +51,7 @@ A new copy replaces the running one by itself. Logs and state are in `/data/gowi
 ## Workflow
 
 Commits land straight on `main`. Bump `GWM_VERSION` in `src/version.h` with every change in behaviour on the console.
+
+## Brand
+
+The product is **gowithme.club**: lowercase, never shortened to "gowithme"; `GWM` names only the friends' group. The descriptor, the slogan and how to write them live in the server repository, in [`src/public/brand.js`](https://github.com/gowithme-club/server/blob/main/src/public/brand.js) and [DESIGN.md, "Голос"](https://github.com/gowithme-club/server/blob/main/DESIGN.md#голос), with [the list of every text shown outside the site](https://github.com/gowithme-club/server/blob/main/DESIGN.md#тексты-вне-сайта). Reuse that wording rather than writing a variant; when a text listed there changes here, update the list.
