@@ -34,8 +34,6 @@
  * tell the server nothing. */
 #define GWM_MIN_SESSION_SEC 10
 
-#define GWM_ACCOUNT_LEN 64
-
 typedef struct
 {
 	char    title_id[GWM_TITLE_ID_LEN];

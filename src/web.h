@@ -11,7 +11,8 @@
  *
  *   GET  /                 assets/page.html, which draws everything from /state
  *   GET  /icon.png         the tile icon, for the page header
- *   GET  /state?lang=en|ru the current state as JSON
+ *   GET  /state?lang=en|ru the current state as JSON, with "latest" when a
+ *                          newer payload is out (the footer says so)
  *   POST /pair             a new pairing window once the old one ran out (pair.h)
  *   POST /welcome          the welcome screen was read; it is not shown again
  *
@@ -152,6 +153,7 @@ typedef struct
 	/* What the console recorded (reply.h); -1 until the server says. */
 	int64_t rec_seconds, rec_games, rec_trophies;
 	int     welcome;        /* open on the welcome screen */
+	char    latest[16];     /* a newer payload release, "" if none */
 } gwm_web_view_t;
 
 /* The QR code for text as rows of 0 and 1, the way the page draws it. */
@@ -219,6 +221,11 @@ static size_t gwm_web_state_json(char *out, size_t size, const gwm_web_view_t *v
 		p = gwm_lit(p, end, "}");
 	}
 	if(v->welcome) p = gwm_lit(p, end, ",\"welcome\":true");
+	if(v->latest[0])
+	{
+		p = gwm_lit(p, end, ",");
+		p = gwm_json_kv(p, end, "latest", v->latest);
+	}
 	p = gwm_lit(p, end, "}");
 	return (size_t)(p - out) < size - 1 ? (size_t)(p - out) : 0;
 }
@@ -236,7 +243,7 @@ static size_t gwm_web_state_json(char *out, size_t size, const gwm_web_view_t *v
 #include "log.h"
 
 static pthread_mutex_t gwm_web_lock = PTHREAD_MUTEX_INITIALIZER;
-static gwm_web_view_t gwm_web_view = { "connecting", "", "", -1, 0, "", -1, -1, -1, 0 };
+static gwm_web_view_t gwm_web_view = { "connecting", "", "", -1, 0, "", -1, -1, -1, 0, "" };
 static int gwm_web_pair_flag = 0;
 static int gwm_web_welcome_flag = 0;
 static int gwm_web_opened_flag = 0;

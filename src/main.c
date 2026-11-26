@@ -47,6 +47,9 @@
 
 static gwm_config_t  gwm_cfg;
 static gwm_session_t gwm_sess;
+/* The other players of the game in gwm_sess, each from when they came in. */
+#define GWM_COOP_MAX (GWM_PLAYERS_MAX - 1)
+static gwm_session_t gwm_coop[GWM_COOP_MAX];
 static gwm_state_t   gwm_state;
 
 static int  gwm_last_code = 0;
@@ -171,6 +174,7 @@ static void gwm_web_refresh(void)
 		v.rec_trophies = gwm_recorded.trophies;
 	}
 	v.welcome = !gwm_cfg.valid && !gwm_welcome_seen;
+	if(gwm_version_newer(gwm_latest, GWM_VERSION)) snprintf(v.latest, sizeof(v.latest), "%s", gwm_latest);
 	gwm_web_publish(&v);
 }
 
@@ -189,7 +193,9 @@ static void gwm_write_status(void)
 	fprintf(f, "token = %s\n", gwm_cfg.valid ? "yes" : "no");
 	fprintf(f, "playing = %s\n", gwm_sess.active ? gwm_sess.title_id : "");
 	fprintf(f, "title = %s\n", gwm_sess.active ? gwm_sess.title : "");
-	fprintf(f, "account = %s\n", gwm_sess.active ? gwm_sess.account : "");
+	fprintf(f, "account = %s", gwm_sess.active ? gwm_sess.account : "");
+	for(int i = 0; i < GWM_COOP_MAX; i++) if(gwm_coop[i].active) fprintf(f, ", %s", gwm_coop[i].account);
+	fprintf(f, "\n");
 	fprintf(f, "signed_in = %s%s\n", gwm_foreground, gwm_profile.unclaimed ? " (not linked)" : "");
 	fprintf(f, "started = %s\n", gwm_sess.active ? started : "");
 	fprintf(f, "last_http = %d\n", gwm_last_code);
@@ -263,6 +269,33 @@ static void gwm_profile_news(const gwm_profile_t *before, int same_profile)
 		gwm_toast("%s", GWM_TR("Link your profile\nOpen " GWM_PRODUCT, "Привяжите свой профиль\nОткройте " GWM_PRODUCT));
 }
 
+/* A newer release, said once per version: the one said last is kept in
+ * GWM_UPDATE_FILE across runs. The tile's footer keeps showing it. */
+#define GWM_UPDATE_FILE GWM_DATA_DIR "/update.txt"
+
+static void gwm_update_news(void)
+{
+	char said[16] = "";
+	FILE *f;
+
+	if(!gwm_version_newer(gwm_latest, GWM_VERSION)) return;
+	if((f = fopen(GWM_UPDATE_FILE, "r")))
+	{
+		if(!fgets(said, sizeof(said), f)) said[0] = 0;
+		said[strcspn(said, "\n")] = 0;
+		fclose(f);
+	}
+	if(!strcmp(said, gwm_latest)) return;
+
+	gwm_log("update: %s is out, this is %s", gwm_latest, GWM_VERSION);
+	gwm_toast(GWM_TR("Version %s is out", "Вышла версия %s"), gwm_latest);
+	if((f = fopen(GWM_UPDATE_FILE, "w")))
+	{
+		fprintf(f, "%s\n", gwm_latest);
+		fclose(f);
+	}
+}
+
 /* One network pass: a heartbeat and, if the server answered, the queues. */
 static void gwm_net_pass(void)
 {
@@ -272,14 +305,14 @@ static void gwm_net_pass(void)
 
 	gwm_profile_t before = gwm_profile;
 	int same_profile = !strcmp(gwm_profile_for, gwm_foreground);
-	int code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_foreground, gwm_web_open());
+	int code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_coop, GWM_COOP_MAX, gwm_foreground, gwm_web_open());
 
 	/* The first response brought the clock offset, but this heartbeat went
 	 * out without it, with startedAt off by the clock error. If the error is
 	 * noticeable, resend right away. */
 	if(code == 200 && !was_synced && gwm_clock_synced &&
 	   (gwm_clock_offset > 30 || gwm_clock_offset < -30))
-		code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_foreground, gwm_web_open());
+		code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_coop, GWM_COOP_MAX, gwm_foreground, gwm_web_open());
 	if(code == 200) snprintf(gwm_profile_for, sizeof(gwm_profile_for), "%s", gwm_foreground);
 
 	if(code != gwm_last_code) gwm_log("heartbeat -> %d (clock offset %lld s)", code, (long long)gwm_clock_offset);
@@ -322,6 +355,7 @@ static void gwm_net_pass(void)
 
 	/* After "started" or "connected", which say the tracker is there at all. */
 	gwm_profile_news(&before, same_profile);
+	gwm_update_news();
 
 	/* Queues go out only once the clock offset is known: otherwise
 	 * timestamps would leave raw, and a resend with different ones is a
@@ -332,22 +366,94 @@ static void gwm_net_pass(void)
 	gwm_upload_trophies(&gwm_cfg);
 }
 
+/* Everyone else signed in while a game is played: co-op players, each with
+ * a session of their own. The journal names only who started the game, and
+ * switching users signs the last one out, so another profile signed in is
+ * another player (user.h). One profile for all (config.cfg) has no others. */
+static void gwm_coop_update(int64_t now, const char *title_id, const char *title, int *heartbeat_due)
+{
+	char names[GWM_COOP_MAX][GWM_ACCOUNT_LEN], line[GWM_RECORD_MAX];
+	int n = 0, changed;
+
+	if(title_id[0] && gwm_sess.active && !gwm_cfg.account[0])
+	{
+		int ids[GWM_PLAYERS_MAX], k = gwm_user_signed_in_all(ids);
+		for(int i = 0; i < k && n < GWM_COOP_MAX; i++)
+		{
+			char name[GWM_ACCOUNT_LEN];
+			gwm_user_account(NULL, ids[i], name, sizeof(name));
+			if(strcmp(name, gwm_sess.account)) snprintf(names[n++], GWM_ACCOUNT_LEN, "%s", name);
+		}
+	}
+
+	/* Who left, or a game that changed under them. */
+	for(int i = 0; i < GWM_COOP_MAX; i++)
+	{
+		gwm_session_t *c = &gwm_coop[i];
+		char account[GWM_ACCOUNT_LEN];
+		int stays = 0;
+
+		if(!c->active) continue;
+		for(int j = 0; j < n; j++) if(!strcmp(names[j], c->account)) stays = 1;
+		snprintf(account, sizeof(account), "%s", c->account);
+		size_t len = gwm_session_update(c, now, stays ? title_id : "", title, account, line, sizeof(line), &changed);
+		if(len) gwm_pending_add(line, len);
+		if(changed)
+		{
+			if(!c->active) gwm_log("co-op: %s left", account);
+			*heartbeat_due = 1;
+		}
+	}
+
+	/* Who came in. */
+	for(int j = 0; j < n; j++)
+	{
+		int have = 0, slot = -1;
+		for(int i = 0; i < GWM_COOP_MAX; i++)
+		{
+			if(gwm_coop[i].active && !strcmp(gwm_coop[i].account, names[j])) have = 1;
+			else if(!gwm_coop[i].active && slot < 0) slot = i;
+		}
+		if(have || slot < 0) continue;
+		gwm_session_update(&gwm_coop[slot], now, title_id, title, names[j], line, sizeof(line), &changed);
+		gwm_log("co-op: %s plays %s too", names[j], title_id);
+		*heartbeat_due = 1;
+	}
+}
+
 static void gwm_poll(int *heartbeat_due)
 {
 	char title_id[GWM_TITLE_ID_LEN], title[GWM_TITLE_LEN] = "", account[GWM_ACCOUNT_LEN] = "";
 	char line[GWM_RECORD_MAX];
 	int changed = 0;
 	int64_t now = gwm_now_raw();
+	static char left[GWM_TITLE_ID_LEN] = "";
 
-	int playing = gwm_game_detect(title_id);
+	int running = gwm_game_detect(title_id);
+
+	/* The journal first: it says whether the loaded game is played, and
+	 * who started it (journal.h). */
+	if(gwm_journal_poll(&gwm_state, gwm_cfg.account, now, running ? title_id : NULL) > 0) *heartbeat_due = 1;
+
+	int users[GWM_PLAYERS_MAX], n_users = 0;
+	int played = running ? gwm_journal_playing(title_id, users, &n_users) : -1;
+	int playing = running && played != 0;
+
+	/* Left for the home screen, another game or another user: still loaded,
+	 * nobody playing it. */
+	if(running && !playing && strcmp(left, title_id))
+		gwm_log("%s loaded, not played: the journal ended its session", title_id);
+	snprintf(left, sizeof(left), "%s", running && !playing ? title_id : "");
 
 	/* Title and owner are looked up only when a session starts: that is an
-	 * app.db read and a user service call, not something for every poll. */
+	 * app.db read and a user service call, not something for every poll. The
+	 * owner is who started the game by the journal, else the profile open. */
 	if(playing && !(gwm_sess.active && !strcmp(gwm_sess.title_id, title_id)))
 	{
 		if(!gwm_game_title(title_id, title, sizeof(title)))
 			gwm_log("no title for %s in app.db", title_id);
-		gwm_user_account(gwm_cfg.account, gwm_user_foreground(), account, sizeof(account));
+		gwm_user_account(gwm_cfg.account, played == 1 && n_users ? users[0] : gwm_user_foreground(),
+		                 account, sizeof(account));
 	}
 	else if(playing)
 	{
@@ -368,8 +474,9 @@ static void gwm_poll(int *heartbeat_due)
 		*heartbeat_due = 1;
 	}
 
+	gwm_coop_update(now, gwm_sess.active ? gwm_sess.title_id : "", gwm_sess.title, heartbeat_due);
+
 	if(gwm_notif_poll(&gwm_state, gwm_cfg.account) > 0) *heartbeat_due = 1;
-	if(gwm_journal_poll(&gwm_state, gwm_cfg.account, now) > 0) *heartbeat_due = 1;
 	if(gwm_trophy2_poll(gwm_cfg.account, now) > 0) *heartbeat_due = 1;
 }
 
@@ -392,6 +499,7 @@ int main(void)
 	gwm_config_refresh(1);
 	gwm_state_load(&gwm_state);
 	gwm_session_init(&gwm_sess);
+	for(int i = 0; i < GWM_COOP_MAX; i++) gwm_session_init(&gwm_coop[i]);
 
 	gwm_lang_detect();
 	struct stat welcome;
@@ -470,6 +578,11 @@ int main(void)
 				char line[GWM_RECORD_MAX];
 				size_t len = gwm_session_close(&gwm_sess, gwm_now_raw(), line, sizeof(line));
 				if(len) gwm_pending_add(line, len);
+				for(int c = 0; c < GWM_COOP_MAX; c++)
+				{
+					len = gwm_session_close(&gwm_coop[c], gwm_now_raw(), line, sizeof(line));
+					if(len) gwm_pending_add(line, len);
+				}
 
 				gwm_log("a new copy asked to take over, exiting");
 				return 0;

@@ -38,6 +38,8 @@
 int sceUserServiceInitialize(void *params);
 int sceUserServiceGetForegroundUser(int *user_id);
 int sceUserServiceGetUserName(int user_id, char *name, size_t size);
+/* Four slots, -1 where nobody is signed in. */
+int sceUserServiceGetLoginUserIdList(int *list);
 
 /* Whether the service responds; cleared after the first hang. */
 static int gwm_usvc_alive = 1;
@@ -50,13 +52,15 @@ typedef struct
 	int             user_id;   /* input for the name, output for foreground */
 	int             rc;
 	char            name[GWM_ACCOUNT_LEN];
-	int             want_name;
+	int             want_name; /* 0 foreground, 1 name, 2 everyone signed in */
+	int             list[GWM_PLAYERS_MAX];
 } gwm_usvc_call_t;
 
 static void *gwm_usvc_worker(void *arg)
 {
 	gwm_usvc_call_t *c = arg;
 	int rc, uid = c->user_id;
+	int list[GWM_PLAYERS_MAX] = { -1, -1, -1, -1 };
 	char name[GWM_ACCOUNT_LEN] = "";
 	static int inited = 0;
 
@@ -70,12 +74,14 @@ static void *gwm_usvc_worker(void *arg)
 		if(irc) gwm_log("user service: Initialize -> 0x%08x", irc);
 	}
 
-	if(c->want_name) rc = sceUserServiceGetUserName(uid, name, sizeof(name));
-	else             rc = sceUserServiceGetForegroundUser(&uid);
+	if(c->want_name == 2)  rc = sceUserServiceGetLoginUserIdList(list);
+	else if(c->want_name)  rc = sceUserServiceGetUserName(uid, name, sizeof(name));
+	else                   rc = sceUserServiceGetForegroundUser(&uid);
 
 	pthread_mutex_lock(&c->lock);
 	c->rc = rc;
 	c->user_id = uid;
+	memcpy(c->list, list, sizeof(list));
 	snprintf(c->name, sizeof(c->name), "%s", name);
 	c->done = 1;
 	pthread_cond_signal(&c->cond);
@@ -84,7 +90,8 @@ static void *gwm_usvc_worker(void *arg)
 }
 
 /* One service call with a timeout. The call struct lives on the heap and is
- * left to the abandoned thread on a hang, so it must not be freed then. */
+ * left to the abandoned thread on a hang, so it must not be freed then. For
+ * want_name 2, name is the list's place (GWM_PLAYERS_MAX ints). */
 static int gwm_usvc_call(int want_name, int *user_id, char *name, size_t size)
 {
 	if(!gwm_usvc_alive) return -1;
@@ -119,10 +126,13 @@ static int gwm_usvc_call(int want_name, int *user_id, char *name, size_t size)
 	}
 
 	*user_id = c->user_id;
-	if(name) snprintf(name, size, "%s", c->name);
+	if(want_name == 2 && name && size >= sizeof(c->list)) memcpy(name, c->list, sizeof(c->list));
+	else if(name) snprintf(name, size, "%s", c->name);
 	free(c);
 
-	if(rc != 0) gwm_log("user service: %s -> 0x%08x", want_name ? "GetUserName" : "GetForegroundUser", rc);
+	if(rc != 0)
+		gwm_log("user service: %s -> 0x%08x",
+		        want_name == 2 ? "GetLoginUserIdList" : want_name ? "GetUserName" : "GetForegroundUser", rc);
 	return rc;
 }
 
@@ -164,6 +174,20 @@ static int gwm_user_foreground(void)
 	return gwm_user_from_home();
 }
 
+/* Everyone signed in on the console: the profile on each controller, Remote
+ * Play included. Switching users signs the last one out (ConsoleLogout
+ * "switchUser" in the journal), so a second profile here is a second player.
+ * Returns how many, 0 without the service. */
+static int gwm_user_signed_in_all(int *out)
+{
+	int list[GWM_PLAYERS_MAX], uid = GWM_USER_NONE, n = 0;
+
+	if(gwm_usvc_call(2, &uid, (char *)list, sizeof(list)) != 0) return 0;
+	for(int i = 0; i < GWM_PLAYERS_MAX; i++)
+		if(list[i] != GWM_USER_NONE && list[i] != 0) out[n++] = list[i];
+	return n;
+}
+
 /* The user signed in on the console as the service says, or GWM_USER_NONE.
  * Unlike gwm_user_foreground there is no guess from /user/home: the console
  * page names this profile to the person in front of it. */
@@ -181,6 +205,15 @@ static int gwm_user_signed_in(void)
 
 static struct { int uid; char name[GWM_ACCOUNT_LEN]; } gwm_user_cache[GWM_USER_CACHE];
 static int gwm_user_cached = 0;
+
+/* The user whose name is account, as this run has looked it up, or
+ * GWM_USER_NONE. */
+static int gwm_user_id_of(const char *account)
+{
+	for(int i = 0; i < gwm_user_cached; i++)
+		if(!strcmp(gwm_user_cache[i].name, account)) return gwm_user_cache[i].uid;
+	return GWM_USER_NONE;
+}
 
 /* account for data of user uid. */
 static void gwm_user_account(const char *cfg_account, int uid, char *out, size_t size)

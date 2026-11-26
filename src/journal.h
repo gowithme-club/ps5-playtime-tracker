@@ -31,6 +31,22 @@
  * on the journal clock, exactly the created_date of the Start row, so Start
  * is never looked up.
  *
+ * Played, not just loaded. The system keeps a game in memory after the
+ * player leaves it for the home screen, another game or another user, and the
+ * poll still sees it; the journal ends its session then (sessionEndReason
+ * "suspend") and starts a new one when it is resumed. So the journal also
+ * says whether a game is being played (gwm_jfg_t): its last Start without an
+ * End. A game the journal says nothing about within GWM_JFG_LOOKBACK_SEC is
+ * taken as played, as before.
+ *
+ * Players. A session's Start names the profile that started it; in local
+ * co-op the second player signs in on their own controller, and the session
+ * ends with an End row for every profile signed in (measured 2026-11-26).
+ * Their userControllerActiveTime cannot tell who played: Remote Play counts
+ * 0. While the game runs, the poll counts everyone signed in (main.c). Matching a poll session to the journal
+ * therefore compares profiles too: one player's journal session must not
+ * swallow another's poll session.
+ *
  * Row parsing and overlaps are pure, covered by a host test.
  */
 
@@ -39,6 +55,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "isotime.h"
@@ -199,38 +216,147 @@ static int gwm_spans_overlap(int64_t a0, int64_t a1, int64_t b0, int64_t b1)
  * would count them twice. 256 is weeks of play. */
 #define GWM_SPANS 256
 
+/* An empty account is any profile: spans saved before profiles were kept. */
 typedef struct
 {
-	struct { char title_id[GWM_TITLE_ID_LEN]; int64_t start, end; } s[GWM_SPANS];
+	struct { char title_id[GWM_TITLE_ID_LEN]; char account[GWM_ACCOUNT_LEN]; int64_t start, end; } s[GWM_SPANS];
 	int n, next;
 } gwm_spans_t;
 
-static void gwm_spans_add(gwm_spans_t *l, const char *title_id, int64_t start, int64_t end)
+static void gwm_spans_add(gwm_spans_t *l, const char *title_id, const char *account, int64_t start, int64_t end)
 {
 	snprintf(l->s[l->next].title_id, GWM_TITLE_ID_LEN, "%s", title_id);
+	snprintf(l->s[l->next].account, GWM_ACCOUNT_LEN, "%s", account ? account : "");
 	l->s[l->next].start = start;
 	l->s[l->next].end = end;
 	l->next = (l->next + 1) % GWM_SPANS;
 	if(l->n < GWM_SPANS) l->n++;
 }
 
-static int gwm_spans_hit(const gwm_spans_t *l, const char *title_id, int64_t start, int64_t end)
+static int gwm_spans_hit(const gwm_spans_t *l, const char *title_id, const char *account, int64_t start, int64_t end)
 {
 	for(int i = 0; i < l->n; i++)
-		if(!strcmp(l->s[i].title_id, title_id) && gwm_spans_overlap(l->s[i].start, l->s[i].end, start, end))
+		if(!strcmp(l->s[i].title_id, title_id) && gwm_spans_overlap(l->s[i].start, l->s[i].end, start, end) &&
+		   (!l->s[i].account[0] || !account || !account[0] || !strcmp(l->s[i].account, account)))
 			return 1;
 	return 0;
 }
 
-/* Game and bounds from a session queue line (record.h). */
-static int gwm_session_line_span(const char *line, char *title_id, size_t size, int64_t *start, int64_t *end)
+/* Game, profile and bounds from a session queue line (record.h). */
+static int gwm_session_line_span(const char *line, char *title_id, size_t size, char *account, size_t asize,
+                                 int64_t *start, int64_t *end)
 {
 	char a[32], b[32];
 
+	if(!gwm_json_get_str(line, "account", account, asize)) account[0] = 0;
 	return gwm_json_get_str(line, "titleId", title_id, size) &&
 	       gwm_json_get_str(line, "startedAt", a, sizeof(a)) && strlen(a) == GWM_ISO_LEN - 1 &&
 	       gwm_json_get_str(line, "endedAt", b, sizeof(b)) && strlen(b) == GWM_ISO_LEN - 1 &&
 	       gwm_iso_to_unix(a, start) && gwm_iso_to_unix(b, end);
+}
+
+/* The profiles a journal row names: user_id0..3, then the hex ids in its
+ * header's localUserIds, each once. Small numbers are the system's own. */
+static int gwm_journal_users(const int64_t cols[4], const char *header, int *out)
+{
+	int n = 0;
+	int64_t ids[4 + GWM_PLAYERS_MAX];
+	int k = 0;
+
+	for(int i = 0; i < 4; i++) ids[k++] = cols[i];
+	const char *p = header ? strstr(header, "\"localUserIds\":[") : NULL;
+	if(p)
+	{
+		p += 16;
+		while(*p == '"' && k < 4 + GWM_PLAYERS_MAX)
+		{
+			char *end;
+			unsigned long v = strtoul(p + 1, &end, 16);
+			if(*end != '"') break;
+			ids[k++] = (int64_t)v;
+			p = end + 1;
+			if(*p == ',') p++;
+		}
+	}
+	for(int i = 0; i < k && n < GWM_PLAYERS_MAX; i++)
+	{
+		int dup = 0;
+		if(ids[i] <= 0xffff || ids[i] > 0x7fffffff) continue;
+		for(int j = 0; j < n; j++) if(out[j] == (int)ids[i]) dup = 1;
+		if(!dup) out[n++] = (int)ids[i];
+	}
+	return n;
+}
+
+/* What the journal says of each game seen this run: its last session open
+ * (played) or closed (left, though it may stay loaded). */
+#define GWM_JFG_TITLES 8
+#define GWM_JFG_OPEN   1
+#define GWM_JFG_CLOSED 2
+#define GWM_JFG_UNSEEN 3   /* looked for, nothing within the lookback */
+
+typedef struct
+{
+	struct
+	{
+		char title_id[GWM_TITLE_ID_LEN];
+		char app_session_id[24];
+		int  state;
+		int  users[GWM_PLAYERS_MAX];
+		int  n_users;
+	} e[GWM_JFG_TITLES];
+	int n, next;
+} gwm_jfg_t;
+
+static int gwm_jfg_index(const gwm_jfg_t *t, const char *title_id)
+{
+	for(int i = 0; i < t->n; i++) if(!strcmp(t->e[i].title_id, title_id)) return i;
+	return -1;
+}
+
+static int gwm_jfg_slot(gwm_jfg_t *t, const char *title_id)
+{
+	int i = gwm_jfg_index(t, title_id);
+	if(i >= 0) return i;
+	i = t->n < GWM_JFG_TITLES ? t->n++ : t->next;
+	t->next = (i + 1) % GWM_JFG_TITLES;
+	memset(&t->e[i], 0, sizeof(t->e[i]));
+	snprintf(t->e[i].title_id, GWM_TITLE_ID_LEN, "%s", title_id);
+	return i;
+}
+
+static void gwm_jfg_start(gwm_jfg_t *t, const char *title_id, const char *sid, const int *users, int n)
+{
+	int i = gwm_jfg_slot(t, title_id);
+	t->e[i].state = GWM_JFG_OPEN;
+	snprintf(t->e[i].app_session_id, sizeof(t->e[i].app_session_id), "%s", sid ? sid : "");
+	t->e[i].n_users = n < 0 ? 0 : n > GWM_PLAYERS_MAX ? GWM_PLAYERS_MAX : n;
+	for(int k = 0; k < t->e[i].n_users; k++) t->e[i].users[k] = users[k];
+}
+
+/* The End of an older session than the open one leaves it open. */
+static void gwm_jfg_end(gwm_jfg_t *t, const char *title_id, const char *sid)
+{
+	int i = gwm_jfg_index(t, title_id);
+	if(i >= 0 && t->e[i].state == GWM_JFG_OPEN && t->e[i].app_session_id[0] && sid && sid[0] &&
+	   strcmp(t->e[i].app_session_id, sid))
+		return;
+	i = gwm_jfg_slot(t, title_id);
+	t->e[i].state = GWM_JFG_CLOSED;
+	snprintf(t->e[i].app_session_id, sizeof(t->e[i].app_session_id), "%s", sid ? sid : "");
+	t->e[i].n_users = 0;
+}
+
+/* 1 played (users, if any, who started it), 0 left, -1 unknown. */
+static int gwm_jfg_playing(const gwm_jfg_t *t, const char *title_id, int *users, int *n_users)
+{
+	int i = gwm_jfg_index(t, title_id);
+	*n_users = 0;
+	if(i < 0 || t->e[i].state == GWM_JFG_UNSEEN) return -1;
+	if(t->e[i].state == GWM_JFG_CLOSED) return 0;
+	*n_users = t->e[i].n_users;
+	for(int k = 0; k < *n_users; k++) users[k] = t->e[i].users[k];
+	return 1;
 }
 
 #ifndef GWM_HOST_TEST
@@ -292,8 +418,10 @@ typedef struct
 	int64_t offset;
 	int offset_known;
 
-	struct { gwm_jsess_t s; int64_t row; int uid; } found[GWM_JOURNAL_BATCH];
+	struct { gwm_jsess_t s; int64_t row; int uid; } found[GWM_JOURNAL_BATCH * GWM_PLAYERS_MAX];
 	int n_found;
+	gwm_jfg_t jfg;                       /* gwm_jfg with this pass's rows */
+	char running[GWM_TITLE_ID_LEN];      /* the game loaded now, "" for none */
 	int64_t from;      /* journal_last_row the pass started from */
 	int64_t last_row;  /* last row read */
 	int64_t max_row;
@@ -304,6 +432,10 @@ typedef struct
 } gwm_jread_t;
 
 static gwm_jread_t gwm_jread;
+/* Played or left, per game, as of the last pass that went through. */
+static gwm_jfg_t gwm_jfg;
+/* Games looked back for this run, found or not. */
+#define GWM_JFG_LOOKBACK_SEC (12 * 3600)
 
 /* Titles by title id: on the first run the journal may return hundreds of
  * sessions, and each must not copy app.db again. */
@@ -325,7 +457,8 @@ static void gwm_journal_title(const char *title_id, char *out, size_t size)
 	}
 }
 
-/* polled.txt: "PPSA35901 1760000000 1760000600" per line, oldest first. */
+/* polled.txt: "PPSA35901 1760000000 1760000600 Fire" per line, oldest
+ * first; lines from before profiles were kept have no name. */
 static void gwm_polled_save(void)
 {
 	const char *tmp = GWM_POLLED_FILE ".tmp";
@@ -336,7 +469,8 @@ static void gwm_polled_save(void)
 	for(int i = 0; i < l->n; i++)
 	{
 		int k = (l->next - l->n + i + GWM_SPANS) % GWM_SPANS;
-		fprintf(f, "%s %lld %lld\n", l->s[k].title_id, (long long)l->s[k].start, (long long)l->s[k].end);
+		fprintf(f, "%s %lld %lld %s\n", l->s[k].title_id, (long long)l->s[k].start, (long long)l->s[k].end,
+		        l->s[k].account);
 	}
 	int failed = fflush(f) != 0 || ferror(f);
 	fsync(fileno(f));
@@ -357,8 +491,15 @@ static void gwm_polled_load(void)
 	loaded = 1;
 
 	FILE *f = fopen(GWM_POLLED_FILE, "r");
+	char line[160], account[GWM_ACCOUNT_LEN];
 	if(!f) return;
-	while(fscanf(f, "%15s %lld %lld", id, &a, &b) == 3) gwm_spans_add(&gwm_live_spans, id, a, b);
+	while(fgets(line, sizeof(line), f))
+	{
+		account[0] = 0;
+		line[strcspn(line, "\n")] = 0;
+		if(sscanf(line, "%15s %lld %lld %63[^\n]", id, &a, &b, account) >= 3)
+			gwm_spans_add(&gwm_live_spans, id, account, a, b);
+	}
 	fclose(f);
 }
 
@@ -393,7 +534,45 @@ static int gwm_journal_calibrate(sqlite3 *db, time_t mtime, gwm_jread_t *r)
 	return 1;
 }
 
-/* New End rows after r->from. 0 on an SQLite error. */
+/* The users of a row from its columns: user_id0..3 at col, header after. */
+static int gwm_journal_row_users(sqlite3_stmt *q, int col, int header_col, int *users)
+{
+	int64_t cols[4];
+	for(int i = 0; i < 4; i++) cols[i] = sqlite3_column_int64(q, col + i);
+	return gwm_journal_users(cols, (const char *)sqlite3_column_text(q, header_col), users);
+}
+
+/* A Start or End row into r->jfg; an End of a game also into r->found, once
+ * per player it names. */
+static void gwm_journal_take_row(gwm_jread_t *r, int64_t row, const char *ev, const char *created,
+                                 const char *log, const int *users, int n_users)
+{
+	char title_id[GWM_TITLE_ID_LEN], sid[24] = "";
+
+	if(!ev || !log || !gwm_journal_is_game(log, title_id, sizeof(title_id))) return;
+	gwm_json_get_str(log, "appSessionId", sid, sizeof(sid));
+
+	if(!strcmp(ev, "ApplicationSessionStart"))
+	{
+		gwm_jfg_start(&r->jfg, title_id, sid, users, n_users);
+		return;
+	}
+
+	gwm_jfg_end(&r->jfg, title_id, sid);
+
+	gwm_jsess_t js;
+	if(!gwm_journal_parse_end(log, created, &js) || js.seconds < GWM_MIN_SESSION_SEC) return;
+	for(int k = 0; k < (n_users ? n_users : 1); k++)
+	{
+		if(r->n_found >= (int)(sizeof(r->found) / sizeof(r->found[0]))) return;
+		r->found[r->n_found].s = js;
+		r->found[r->n_found].row = row;
+		r->found[r->n_found].uid = n_users ? users[k] : -1;
+		r->n_found++;
+	}
+}
+
+/* New Start and End rows after r->from. 0 on an SQLite error. */
 static int gwm_journal_scan_ends(sqlite3 *db, gwm_jread_t *r)
 {
 	sqlite3_stmt *q = NULL;
@@ -414,8 +593,9 @@ static int gwm_journal_scan_ends(sqlite3 *db, gwm_jread_t *r)
 	if(upper > r->max_row) upper = r->max_row;
 
 	if(sqlite3_prepare_v2(db,
-	       "SELECT rowid, user_id0, created_date, log FROM tbl_log "
-	       "WHERE event_id = 'ApplicationSessionEnd' AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?",
+	       "SELECT rowid, event_id, created_date, log, user_id0, user_id1, user_id2, user_id3, log_header "
+	       "FROM tbl_log WHERE event_id IN ('ApplicationSessionStart', 'ApplicationSessionEnd') "
+	       "AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?",
 	       -1, &q, NULL) != SQLITE_OK)
 		return 0;
 
@@ -426,19 +606,13 @@ static int gwm_journal_scan_ends(sqlite3 *db, gwm_jread_t *r)
 	while((rc = sqlite3_step(q)) == SQLITE_ROW)
 	{
 		int64_t row = sqlite3_column_int64(q, 0);
-		gwm_jsess_t js;
+		int users[GWM_PLAYERS_MAX];
+		int n_users = gwm_journal_row_users(q, 4, 8, users);
 
 		rows++;
 		r->last_row = row;
-
-		if(gwm_journal_parse_end((const char *)sqlite3_column_text(q, 3), (const char *)sqlite3_column_text(q, 2), &js) &&
-		   js.seconds >= GWM_MIN_SESSION_SEC)
-		{
-			r->found[r->n_found].s = js;
-			r->found[r->n_found].row = row;
-			r->found[r->n_found].uid = (int)sqlite3_column_int64(q, 1);
-			r->n_found++;
-		}
+		gwm_journal_take_row(r, row, (const char *)sqlite3_column_text(q, 1), (const char *)sqlite3_column_text(q, 2),
+		                     (const char *)sqlite3_column_text(q, 3), users, n_users);
 	}
 	sqlite3_finalize(q);
 	if(rc != SQLITE_DONE) return 0;
@@ -452,13 +626,56 @@ static int gwm_journal_scan_ends(sqlite3 *db, gwm_jread_t *r)
 	return 1;
 }
 
+/* A loaded game this run has no word on: its newest Start or End row up to
+ * the scanned mark, no older than GWM_JFG_LOOKBACK_SEC. Once per game and
+ * run; nothing found is remembered too. 0 on an SQLite error. */
+static int gwm_journal_look_back(sqlite3 *db, gwm_jread_t *r, const char *title_id)
+{
+	sqlite3_stmt *q = NULL;
+	char needle[48];
+	int rc = SQLITE_DONE, found = 0;
+
+	snprintf(needle, sizeof(needle), "\"appTitleId\":\"%s\"", title_id);
+	if(sqlite3_prepare_v2(db,
+	       "SELECT rowid, event_id, created_date, log, user_id0, user_id1, user_id2, user_id3, log_header "
+	       "FROM tbl_log WHERE event_id IN ('ApplicationSessionStart', 'ApplicationSessionEnd') "
+	       "AND rowid <= ? ORDER BY rowid DESC",
+	       -1, &q, NULL) != SQLITE_OK)
+		return 0;
+	sqlite3_bind_int64(q, 1, r->last_row);
+
+	while(!found && (rc = sqlite3_step(q)) == SQLITE_ROW)
+	{
+		const char *ev = (const char *)sqlite3_column_text(q, 1);
+		const char *created = (const char *)sqlite3_column_text(q, 2);
+		const char *log = (const char *)sqlite3_column_text(q, 3);
+		int64_t t;
+
+		if(!gwm_journal_time(created, &t)) continue;
+		if(r->offsets.latest && t < r->offsets.latest - GWM_JFG_LOOKBACK_SEC) break;
+		if(!log || !strstr(log, needle)) continue;
+
+		char sid[24] = "";
+		int users[GWM_PLAYERS_MAX], n_users = gwm_journal_row_users(q, 4, 8, users);
+		gwm_json_get_str(log, "appSessionId", sid, sizeof(sid));
+		if(!strcmp(ev, "ApplicationSessionStart")) gwm_jfg_start(&r->jfg, title_id, sid, users, n_users);
+		else gwm_jfg_end(&r->jfg, title_id, sid);
+		found = 1;
+	}
+	sqlite3_finalize(q);
+	if(!found && rc != SQLITE_ROW && rc != SQLITE_DONE) return 0;
+	if(!found) r->jfg.e[gwm_jfg_slot(&r->jfg, title_id)].state = GWM_JFG_UNSEEN;
+	return 1;
+}
+
 /* Whether the journal has a session of this game overlapping [js, je]
  * (journal clock): closed, or still running, i.e. the last Start without its
- * End. Rows go from newest to oldest down to the start of [js, je]: an End
+ * End. uid, when known, is whose session it must be: another player's does
+ * not count. Rows go from newest to oldest down to the start of [js, je]: an End
  * before it cannot overlap, and a running session started earlier means the
  * payload was launched mid-game; an End will close it seconds after exit.
  * 1 yes, 0 no, -1 SQLite error. */
-static int gwm_journal_covers(sqlite3 *db, const char *title_id, int64_t js, int64_t je)
+static int gwm_journal_covers(sqlite3 *db, const char *title_id, int uid, int64_t js, int64_t je)
 {
 	sqlite3_stmt *q = NULL;
 	char needle[48], ended[16][24];
@@ -467,7 +684,7 @@ static int gwm_journal_covers(sqlite3 *db, const char *title_id, int64_t js, int
 	snprintf(needle, sizeof(needle), "\"appTitleId\":\"%s\"", title_id);
 
 	if(sqlite3_prepare_v2(db,
-	       "SELECT event_id, created_date, log FROM tbl_log "
+	       "SELECT event_id, created_date, log, user_id0, user_id1, user_id2, user_id3, log_header FROM tbl_log "
 	       "WHERE event_id IN ('ApplicationSessionStart', 'ApplicationSessionEnd') ORDER BY rowid DESC",
 	       -1, &q, NULL) != SQLITE_OK)
 		return -1;
@@ -485,6 +702,12 @@ static int gwm_journal_covers(sqlite3 *db, const char *title_id, int64_t js, int
 		gwm_jsess_t s;
 
 		if(!log || !strstr(log, needle)) continue;
+		if(uid != -1)
+		{
+			int users[GWM_PLAYERS_MAX], n = gwm_journal_row_users(q, 3, 7, users), mine = !n;
+			for(int k = 0; k < n; k++) if(users[k] == uid) mine = 1;
+			if(!mine) continue;
+		}
 
 		if(!strcmp(ev, "ApplicationSessionEnd"))
 		{
@@ -527,12 +750,14 @@ static int gwm_journal_pending_covered(sqlite3 *db, gwm_jread_t *r)
 		if(!nl) break;
 		*nl = 0;
 
-		char title_id[GWM_TITLE_ID_LEN];
+		char title_id[GWM_TITLE_ID_LEN], account[GWM_ACCOUNT_LEN];
 		int64_t start, end;
 
-		if(gwm_session_line_span(line, title_id, sizeof(title_id), &start, &end))
+		if(gwm_session_line_span(line, title_id, sizeof(title_id), account, sizeof(account), &start, &end))
 		{
-			int c = gwm_journal_covers(db, title_id, start + r->offset, end + r->offset);
+			/* A name this run has not looked up matches anyone, as before. */
+			int uid = account[0] ? gwm_user_id_of(account) : -1;
+			int c = gwm_journal_covers(db, title_id, uid, start + r->offset, end + r->offset);
 			if(c < 0) return 0;
 			r->covered[i] = (signed char)c;
 		}
@@ -543,11 +768,13 @@ static int gwm_journal_pending_covered(sqlite3 *db, gwm_jread_t *r)
 
 /* One pass over the journal. Returns 1 if it was read and did not change
  * meanwhile; otherwise *why says why not. */
-static int gwm_journal_read(gwm_state_t *state, gwm_jread_t *r, char *why, size_t why_size)
+static int gwm_journal_read(gwm_state_t *state, gwm_jread_t *r, const char *running, char *why, size_t why_size)
 {
 	gwm_db_stamp_t before, after;
 
 	memset(r, 0, sizeof(*r));
+	r->jfg = gwm_jfg;
+	snprintf(r->running, sizeof(r->running), "%s", running ? running : "");
 	r->offsets = gwm_journal_offsets;
 	r->offset = gwm_journal_offset;
 	r->offset_known = gwm_journal_offset_known;
@@ -584,6 +811,7 @@ static int gwm_journal_read(gwm_state_t *state, gwm_jread_t *r, char *why, size_
 
 	int ok = gwm_journal_calibrate(db, before.mtime, r) &&
 	         (!r->offset_known || gwm_journal_scan_ends(db, r)) &&
+	         (!r->running[0] || gwm_jfg_index(&r->jfg, r->running) >= 0 || gwm_journal_look_back(db, r, r->running)) &&
 	         gwm_journal_pending_covered(db, r);
 	if(!ok) snprintf(why, why_size, "%s", sqlite3_errmsg(db));
 	sqlite3_close(db);
@@ -608,6 +836,7 @@ static int gwm_journal_commit(gwm_state_t *state, const char *cfg_account, gwm_j
 	gwm_journal_offsets = r->offsets;
 	gwm_journal_offset = r->offset;
 	gwm_journal_offset_known = 1;
+	gwm_jfg = r->jfg;
 
 	if(r->from != state->journal_last_row)
 		gwm_log("journal: generation changed from %s to %s, database recreated",
@@ -617,18 +846,24 @@ static int gwm_journal_commit(gwm_state_t *state, const char *cfg_account, gwm_j
 	{
 		const gwm_jsess_t *js = &r->found[i].s;
 		int64_t start = js->start - gwm_journal_offset, end = js->end - gwm_journal_offset;
-
-		if(gwm_spans_hit(&gwm_live_spans, js->title_id, start, end))
-		{
-			gwm_log("journal: %s already sent from the poll, skipping", js->title_id);
-			continue;
-		}
-
 		char account[GWM_ACCOUNT_LEN], title[GWM_TITLE_LEN], started[GWM_ISO_LEN], ended[GWM_ISO_LEN];
 		char line[GWM_RECORD_MAX];
 
 		gwm_user_account(cfg_account, r->found[i].uid > 0 ? r->found[i].uid : gwm_user_foreground(),
 		                 account, sizeof(account));
+
+		/* One profile for everyone (config.cfg): one session per game session. */
+		int again = 0;
+		for(int j = 0; j < i && cfg_account && cfg_account[0]; j++)
+			if(!strcmp(r->found[j].s.title_id, js->title_id) && !strcmp(r->found[j].s.app_session_id, js->app_session_id))
+				again = 1;
+		if(again) continue;
+
+		if(gwm_spans_hit(&gwm_live_spans, js->title_id, account, start, end))
+		{
+			gwm_log("journal: %s already sent from the poll, skipping", js->title_id);
+			continue;
+		}
 		gwm_journal_title(js->title_id, title, sizeof(title));
 		gwm_iso_from_unix(started, start);
 		gwm_iso_from_unix(ended, end);
@@ -647,8 +882,8 @@ static int gwm_journal_commit(gwm_state_t *state, const char *cfg_account, gwm_j
 			break;
 		}
 
-		gwm_spans_add(&gwm_journal_spans, js->title_id, start, end);
-		gwm_log("journal: %s %s - %s, %lld s", js->title_id, started, ended, (long long)js->seconds);
+		gwm_spans_add(&gwm_journal_spans, js->title_id, account, start, end);
+		gwm_log("journal: %s %s - %s, %lld s (%s)", js->title_id, started, ended, (long long)js->seconds, account);
 		queued++;
 	}
 
@@ -681,15 +916,15 @@ static int gwm_pending_settle(const signed char *covered, int journal_exists, in
 		if(!nl) break;
 		size_t line_len = (size_t)(nl - line) + 1;
 
-		char title_id[GWM_TITLE_ID_LEN];
+		char title_id[GWM_TITLE_ID_LEN], account[GWM_ACCOUNT_LEN];
 		int64_t start, end;
 		*nl = 0;
 
-		if(!gwm_session_line_span(line, title_id, sizeof(title_id), &start, &end))
+		if(!gwm_session_line_span(line, title_id, sizeof(title_id), account, sizeof(account), &start, &end))
 		{
 			gwm_log("pending: unparsable line dropped: %.80s", line);
 		}
-		else if(gwm_spans_hit(&gwm_journal_spans, title_id, start, end) ||
+		else if(gwm_spans_hit(&gwm_journal_spans, title_id, account, start, end) ||
 		        (covered && i < GWM_PENDING_LINES && covered[i] > 0))
 		{
 			gwm_log("pending: %s found in the journal, poll session dropped", title_id);
@@ -699,7 +934,7 @@ static int gwm_pending_settle(const signed char *covered, int journal_exists, in
 			*nl = '\n';
 			if(gwm_queue_append(GWM_SESSION_QUEUE, line, line_len) == 0)
 			{
-				gwm_spans_add(&gwm_live_spans, title_id, start, end);
+				gwm_spans_add(&gwm_live_spans, title_id, account, start, end);
 				saved = 1;
 				gwm_log("pending: %s not in the journal, sending the poll session", title_id);
 				queued++;
@@ -739,8 +974,17 @@ static void gwm_pending_add(const char *line, size_t len)
 		gwm_log("poll session: %.*s", (int)len - 1, line);
 }
 
-/* Called on every poll. Returns how many sessions were queued. */
-static int gwm_journal_poll(gwm_state_t *state, const char *cfg_account, int64_t now)
+/* Whether the journal says the loaded game title_id is being played: 1 yes
+ * (users: who started it, if the rows say), 0 left (still loaded), -1 no word
+ * (the journal is unreadable, or silent about it). */
+static int gwm_journal_playing(const char *title_id, int *users, int *n_users)
+{
+	return gwm_jfg_playing(&gwm_jfg, title_id, users, n_users);
+}
+
+/* Called on every poll; running is the loaded game, NULL for none. Returns
+ * how many sessions were queued. */
+static int gwm_journal_poll(gwm_state_t *state, const char *cfg_account, int64_t now, const char *running)
 {
 	struct stat st;
 	char why[128] = "";
@@ -750,7 +994,8 @@ static int gwm_journal_poll(gwm_state_t *state, const char *cfg_account, int64_t
 
 	/* The journal should confirm a waiting session quickly: that decides
 	 * when the "recorded" notification arrives. */
-	if(!waiting && !gwm_journal_seen.forced && now < gwm_journal_seen.next_check) return 0;
+	/* While a game is loaded, every poll: the journal says whether it is played. */
+	if(!waiting && !running && !gwm_journal_seen.forced && now < gwm_journal_seen.next_check) return 0;
 	gwm_journal_seen.next_check = now + GWM_JOURNAL_IDLE_SEC;
 
 	gwm_polled_load();
@@ -763,7 +1008,7 @@ static int gwm_journal_poll(gwm_state_t *state, const char *cfg_account, int64_t
 	else
 	{
 		gwm_journal_seen.missing_logged = 0;
-		for(int i = 0; i < GWM_JOURNAL_TRIES && !ok; i++) ok = gwm_journal_read(state, &gwm_jread, why, sizeof(why));
+		for(int i = 0; i < GWM_JOURNAL_TRIES && !ok; i++) ok = gwm_journal_read(state, &gwm_jread, running, why, sizeof(why));
 	}
 
 	if(ok)

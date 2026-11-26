@@ -29,6 +29,11 @@
 
 #define GWM_TITLE_ID_LEN 16
 #define GWM_TITLE_LEN    160
+#define GWM_ACCOUNT_LEN  64
+
+/* Profiles in one game at once: the one who started it and everyone else
+ * signed in, as in local co-op (the console has four user slots). */
+#define GWM_PLAYERS_MAX 4
 
 /* The server's platform key. One key for everything from this console, PS5
  * games (PPSA...) and PS4 games (CUSA...) alike: the server tells them apart
@@ -78,19 +83,25 @@ static size_t gwm_build_session(char *out, size_t out_size,
 	return (size_t)(p - out);
 }
 
+/* One player in "current": the profile and when they came into the game. */
+typedef struct
+{
+	const char *account;
+	const char *started_at;
+} gwm_hb_player_t;
+
 /* An empty current means the console is on but nothing is being played.
  * device_name is the console name from its settings and console_id its
  * identifier (console.h); an empty one is not sent. foreground is the profile
  * open on the console, playing or not, and code_wanted says the tile's page is
- * on screen to show a code for it (the server's answer, reply.h). */
+ * on screen to show a code for it (the server's answer, reply.h). Each player
+ * of the game (co-op) is an entry of its own. */
 static size_t gwm_build_heartbeat(char *out, size_t out_size,
                                   const char *sent_at, const char *device_name,
                                   const char *console_id,
                                   const char *foreground, int code_wanted,
-                                  int playing,
-                                  const char *account,
-                                  const char *title_id, const char *title,
-                                  const char *started_at)
+                                  const gwm_hb_player_t *players, int n_players,
+                                  const char *title_id, const char *title)
 {
 	char *p = out;
 	const char *end = out + out_size;
@@ -115,10 +126,10 @@ static size_t gwm_build_heartbeat(char *out, size_t out_size,
 	}
 	p = gwm_lit(p, end, ",\"current\":[");
 
-	if(playing)
+	for(int i = 0; i < n_players; i++)
 	{
-		p = gwm_lit(p, end, "{");
-		p = gwm_json_kv(p, end, "account", account);
+		p = gwm_lit(p, end, i ? ",{" : "{");
+		p = gwm_json_kv(p, end, "account", players[i].account);
 		p = gwm_lit(p, end, ",");
 		p = gwm_json_kv(p, end, "titleId", title_id);
 		p = gwm_lit(p, end, ",");
@@ -126,7 +137,7 @@ static size_t gwm_build_heartbeat(char *out, size_t out_size,
 		p = gwm_lit(p, end, ",");
 		p = gwm_json_kv(p, end, "platform", gwm_platform_for(title_id));
 		p = gwm_lit(p, end, ",");
-		p = gwm_json_kv(p, end, "startedAt", started_at);
+		p = gwm_json_kv(p, end, "startedAt", players[i].started_at);
 		p = gwm_lit(p, end, "}");
 	}
 

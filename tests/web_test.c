@@ -39,7 +39,7 @@ int main(void)
 	CHECK(!gwm_web_host_ok(""));
 
 	/* Not linked: the code and its QR code. */
-	gwm_web_view_t v = { "code", "042917", "", -1, 0, "", -1, -1, -1, 0 };
+	gwm_web_view_t v = { "code", "042917", "", -1, 0, "", -1, -1, -1, 0, "" };
 	size_t n = gwm_web_state_json(out, sizeof(out), &v, "ru");
 	CHECK(n == strlen(out));
 	CHECK(!strncmp(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"code\",\"code\":\"042917\",\"qr\":[\"1111111", 46 + strlen(GWM_VERSION)));
@@ -55,7 +55,7 @@ int main(void)
 
 	/* Linked: no code; the profile address in the page's language, escaped as
 	 * JSON, and its QR code. */
-	gwm_web_view_t linked = { "linked", "", "", 75, 512, "https://gowithme.club/player/a\"b", -1, -1, -1, 0 };
+	gwm_web_view_t linked = { "linked", "", "", 75, 512, "https://gowithme.club/player/a\"b", -1, -1, -1, 0, "" };
 	gwm_web_state_json(out, sizeof(out), &linked, "en");
 	CHECK(!strncmp(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"linked\",\"syncAgo\":75,\"queued\":512,"
 	                    "\"profileUrl\":\"https://gowithme.club/en/player/a\\\"b\",\"profileQr\":[\"1111111",
@@ -63,7 +63,7 @@ int main(void)
 	CHECK(!strcmp(out + strlen(out) - 3, "\"]}"));
 
 	/* No profile yet: neither field. */
-	gwm_web_view_t bare = { "linked", "", "", -1, 0, "", -1, -1, -1, 0 };
+	gwm_web_view_t bare = { "linked", "", "", -1, 0, "", -1, -1, -1, 0, "" };
 	gwm_web_state_json(out, sizeof(out), &bare, "ru");
 	CHECK_STR(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"linked\",\"syncAgo\":-1,\"queued\":0}");
 
@@ -75,7 +75,7 @@ int main(void)
 
 	/* Someone else at a linked console: their profile's name and the code
 	 * that claims it, with the same QR code as pairing; no profile of anyone. */
-	gwm_web_view_t claim = { "claim", "042137", "Mira", 12, 0, "", 0, 0, 0, 0 };
+	gwm_web_view_t claim = { "claim", "042137", "Mira", 12, 0, "", 0, 0, 0, 0, "" };
 	gwm_web_state_json(out, sizeof(out), &claim, "ru");
 	CHECK(!strncmp(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"claim\",\"profile\":\"Mira\","
 	                    "\"code\":\"042137\",\"qr\":[\"1111111", 64 + strlen(GWM_VERSION)));
@@ -86,8 +86,14 @@ int main(void)
 	CHECK_STR(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"claim\",\"profile\":\"Mira\",\"syncAgo\":12,"
 	               "\"queued\":0,\"recorded\":{\"seconds\":0,\"games\":0,\"trophies\":0}}");
 
+	/* A newer payload is out: the footer says so. */
+	snprintf(bare.latest, sizeof(bare.latest), "%s", "1.3.1");
+	bare.rec_seconds = -1;
+	gwm_web_state_json(out, sizeof(out), &bare, "ru");
+	CHECK_STR(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"linked\",\"syncAgo\":-1,\"queued\":0,\"latest\":\"1.3.1\"}");
+
 	/* The welcome screen, until it is read. */
-	gwm_web_view_t welcome = { "connecting", "", "", -1, 0, "", -1, -1, -1, 1 };
+	gwm_web_view_t welcome = { "connecting", "", "", -1, 0, "", -1, -1, -1, 1, "" };
 	gwm_web_state_json(out, sizeof(out), &welcome, "en");
 	CHECK_STR(out, "{\"version\":\"" GWM_VERSION "\",\"state\":\"connecting\",\"syncAgo\":-1,\"queued\":0,\"welcome\":true}");
 

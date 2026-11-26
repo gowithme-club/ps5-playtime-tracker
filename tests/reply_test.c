@@ -35,6 +35,21 @@ int main(void)
 	gwm_reply_profile("{\"sessionsWatermark\":null,\"current\":[]}", &prof);   /* an older server, or nobody's page */
 	CHECK(!prof.url[0] && !prof.unclaimed && !prof.code[0]);
 
+	/* The newest release, and whether it is newer than this one. */
+	char latest[16] = "";
+	CHECK(gwm_reply_latest("{\"sessionsWatermark\":null,\"latestVersion\":\"1.3.1\"}", latest, sizeof(latest)));
+	CHECK_STR(latest, "1.3.1");
+	CHECK(!gwm_reply_latest("{\"latestVersion\":\"1.3\"}", latest, sizeof(latest)));
+	CHECK(!gwm_reply_latest("{\"latestVersion\":\"v1.3.1-beta\"}", latest, sizeof(latest)));
+	CHECK(!gwm_reply_latest("{\"current\":[]}", latest, sizeof(latest)));
+	CHECK_STR(latest, "1.3.1");                                                     /* left alone */
+	CHECK(gwm_version_newer("1.3.1", "1.3.0"));
+	CHECK(gwm_version_newer("1.10.0", "1.9.9"));
+	CHECK(gwm_version_newer("2.0.0", "1.12.3"));
+	CHECK(!gwm_version_newer("1.3.0", "1.3.0"));
+	CHECK(!gwm_version_newer("1.2.9", "1.3.0"));
+	CHECK(!gwm_version_newer("", "1.3.0"));
+
 	gwm_format_span(30, span, sizeof(span));    CHECK_STR(span, "< 1 min");
 	gwm_format_span(7 * 60 + 59, span, sizeof(span)); CHECK_STR(span, "7 min");
 	gwm_format_span(2 * 3600 + 5 * 60, span, sizeof(span)); CHECK_STR(span, "2 h 5 min");

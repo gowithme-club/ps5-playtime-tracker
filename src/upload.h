@@ -80,23 +80,38 @@ static void gwm_batch_fix_times(char *buf, size_t len)
 /* Whose profile the console page shows (reply.h), as of the last answer. */
 static gwm_profile_t gwm_profile;
 
+/* The newest payload release the server knows of (reply.h); "" until it says. */
+static char gwm_latest[16] = "";
+
 /* What the profile open on the console recorded, as the server last counted
  * it (reply.h); the whole console from a server that does not tell profiles
  * apart. */
 static gwm_recorded_t gwm_recorded = { -1, -1, -1 };
 
-/* foreground: the profile open on the console; code_wanted: the console page
- * is on screen to show a code for it. */
-static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s, const char *foreground, int code_wanted)
+/* s is the game's session, others the co-op players' (main.c); foreground:
+ * the profile open on the console; code_wanted: the console page is on
+ * screen to show a code for it. */
+static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s, const gwm_session_t *others,
+                              int n_others, const char *foreground, int code_wanted)
 {
-	char body[GWM_RECORD_MAX], sent[GWM_ISO_LEN], started[GWM_ISO_LEN], resp[2048];
+	char body[GWM_RECORD_MAX], sent[GWM_ISO_LEN], started[GWM_PLAYERS_MAX][GWM_ISO_LEN], resp[2048];
+	gwm_hb_player_t players[GWM_PLAYERS_MAX];
+	int n = 0;
 
 	gwm_iso_from_unix(sent, gwm_now());
-	gwm_iso_from_unix(started, s->start + gwm_clock_offset);
+	for(int i = -1; i < n_others && n < GWM_PLAYERS_MAX; i++)
+	{
+		const gwm_session_t *p = i < 0 ? s : &others[i];
+		if(!p->active || (i >= 0 && strcmp(p->title_id, s->title_id))) continue;
+		gwm_iso_from_unix(started[n], p->start + gwm_clock_offset);
+		players[n].account = p->account;
+		players[n].started_at = started[n];
+		n++;
+	}
 
 	size_t len = gwm_build_heartbeat(body, sizeof(body), sent, gwm_console_name(), gwm_console_id(),
-	                                 foreground, code_wanted, s->active, s->account, s->title_id,
-	                                 s->title[0] ? s->title : s->title_id, started);
+	                                 foreground, code_wanted, players, s->active ? n : 0, s->title_id,
+	                                 s->title[0] ? s->title : s->title_id);
 
 	int code = gwm_http_request(cfg, GWM_PATH_HEARTBEAT, body, len, cfg->token, resp, sizeof(resp));
 	if(code == 200)
@@ -107,6 +122,12 @@ static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s, c
 		if(gwm_profile.unclaimed && !was.unclaimed) gwm_log("profile \"%s\" is nobody's on the site", foreground);
 		if(gwm_profile.code[0] && strcmp(was.code, gwm_profile.code)) gwm_log("profile code for \"%s\" on the page", foreground);
 		gwm_reply_recorded(resp, &gwm_recorded);
+		char latest[sizeof(gwm_latest)];
+		if(gwm_reply_latest(resp, latest, sizeof(latest)) && strcmp(latest, gwm_latest))
+		{
+			gwm_log("latest release: %s", latest);
+			snprintf(gwm_latest, sizeof(gwm_latest), "%s", latest);
+		}
 	}
 	return code;
 }

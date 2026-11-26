@@ -69,13 +69,53 @@ int main(void)
 
 	gwm_spans_t l;
 	memset(&l, 0, sizeof(l));
-	gwm_spans_add(&l, "CUSA01127", 1000, 1200);
-	CHECK(gwm_spans_hit(&l, "CUSA01127", 1039, 1189));
-	CHECK(!gwm_spans_hit(&l, "CUSA03980", 1039, 1189));
-	CHECK(!gwm_spans_hit(&l, "CUSA01127", 5000, 6000));
-	for(int i = 0; i < GWM_SPANS; i++) gwm_spans_add(&l, "CUSA03980", 10000 + i, 10001 + i);
-	CHECK(!gwm_spans_hit(&l, "CUSA01127", 1039, 1189));
+	gwm_spans_add(&l, "CUSA01127", "Fire", 1000, 1200);
+	CHECK(gwm_spans_hit(&l, "CUSA01127", "Fire", 1039, 1189));
+	CHECK(gwm_spans_hit(&l, "CUSA01127", "", 1039, 1189));        /* a line from before profiles */
+	CHECK(!gwm_spans_hit(&l, "CUSA01127", "Mira", 1039, 1189));   /* the other player of a co-op game */
+	CHECK(!gwm_spans_hit(&l, "CUSA03980", "Fire", 1039, 1189));
+	CHECK(!gwm_spans_hit(&l, "CUSA01127", "Fire", 5000, 6000));
+	gwm_spans_add(&l, "CUSA01127", "", 7000, 7100);
+	CHECK(gwm_spans_hit(&l, "CUSA01127", "Mira", 7010, 7090));
+	for(int i = 0; i < GWM_SPANS; i++) gwm_spans_add(&l, "CUSA03980", "Fire", 10000 + i, 10001 + i);
+	CHECK(!gwm_spans_hit(&l, "CUSA01127", "Fire", 1039, 1189));
 	CHECK(l.n == GWM_SPANS);
+
+	/* The profiles a row names: user columns, then the header's hex ids,
+	 * each once; -1 and the system's small ids are nobody. Rows from the
+	 * console (Mira 0x12e6f46c started Burnout; Fire signed in later). */
+	int users[GWM_PLAYERS_MAX];
+	int64_t cols[4] = { 317125740, -1, -1, -1 };
+	CHECK(gwm_journal_users(cols, "{\"localUserIds\":[\"12e6f46c\"],\"numberOfAccounts\":1}", users) == 1);
+	CHECK(users[0] == 317125740);
+	int64_t pair[4] = { 317125740, -1, -1, -1 };
+	CHECK(gwm_journal_users(pair, "{\"localUserIds\":[\"12e6f46c\",\"12e6f46b\"]}", users) == 2);
+	CHECK(users[1] == 317125739);
+	int64_t none[4] = { -1, 254, 0, -1 };
+	CHECK(gwm_journal_users(none, NULL, users) == 0);
+
+	/* Played or left: Wind Waker started, suspended when Fire switched to
+	 * Mira, never resumed; a stale End does not close a newer session. */
+	gwm_jfg_t jf;
+	memset(&jf, 0, sizeof(jf));
+	int n_users;
+	CHECK(gwm_jfg_playing(&jf, "PPSA99306", users, &n_users) == -1);
+	int fire[1] = { 317125739 };
+	gwm_jfg_start(&jf, "PPSA99306", "63931310000000000", fire, 1);
+	CHECK(gwm_jfg_playing(&jf, "PPSA99306", users, &n_users) == 1 && n_users == 1 && users[0] == 317125739);
+	gwm_jfg_end(&jf, "PPSA99306", "63931309999000000");
+	CHECK(gwm_jfg_playing(&jf, "PPSA99306", users, &n_users) == 1);
+	gwm_jfg_end(&jf, "PPSA99306", "63931310000000000");
+	CHECK(gwm_jfg_playing(&jf, "PPSA99306", users, &n_users) == 0 && n_users == 0);
+	gwm_jfg_start(&jf, "PPSA99306", "63931311000000000", fire, 1);
+	CHECK(gwm_jfg_playing(&jf, "PPSA99306", users, &n_users) == 1);
+	for(int i = 0; i < GWM_JFG_TITLES + 2; i++)
+	{
+		char id[16];
+		snprintf(id, sizeof(id), "PPSA%05d", i);
+		gwm_jfg_end(&jf, id, "");
+	}
+	CHECK(jf.n == GWM_JFG_TITLES);
 
 	/* The offset is the largest recent reading: only a file change without a
 	 * new timestamp makes it low. Readings from the console. */
@@ -100,13 +140,14 @@ int main(void)
 	CHECK(gwm_offsets_sample(&o, 1300, 1043) == 258);
 
 	/* A queue line back to its game and bounds. */
-	char line[GWM_RECORD_MAX], title_id[GWM_TITLE_ID_LEN];
+	char line[GWM_RECORD_MAX], title_id[GWM_TITLE_ID_LEN], account[GWM_ACCOUNT_LEN];
 	int64_t a, b;
 	gwm_build_session(line, sizeof(line), "Player", "CUSA01127", "P.T.", "2026-10-07T21:35:18Z", "2026-10-07T21:37:48Z", 150);
-	CHECK(gwm_session_line_span(line, title_id, sizeof(title_id), &a, &b));
+	CHECK(gwm_session_line_span(line, title_id, sizeof(title_id), account, sizeof(account), &a, &b));
 	CHECK_STR(title_id, "CUSA01127");
+	CHECK_STR(account, "Player");
 	CHECK(b - a == 150);
-	CHECK(!gwm_session_line_span("{\"titleId\":\"CUSA01127\"}", title_id, sizeof(title_id), &a, &b));
+	CHECK(!gwm_session_line_span("{\"titleId\":\"CUSA01127\"}", title_id, sizeof(title_id), account, sizeof(account), &a, &b));
 
 	/* The same P.T. seen by a payload launched mid-game and by the journal,
 	 * whose clock is 253 s off: one session. */

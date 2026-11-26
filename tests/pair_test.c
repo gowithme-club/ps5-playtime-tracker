@@ -78,19 +78,23 @@ int main(void)
 
 	/* The console name and identifier go into the heartbeat body; empty ones are not sent. */
 	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "PS5-123", "00112233445566778899aabbccddeeff",
-	                    "", 0, 0, "", "", "", "");
+	                    "", 0, NULL, 0, "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"deviceName\":\"PS5-123\","
 	               "\"consoleId\":\"00112233445566778899aabbccddeeff\",\"current\":[]}");
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "", 1, 0, "", "", "", "");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "", 1, NULL, 0, "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"current\":[]}");
 	/* The open profile, and whether the tile is on screen to show its code. */
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 0, 0, "", "", "", "");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 0, NULL, 0, "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"foregroundAccount\":\"Mira\",\"current\":[]}");
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 1, 1, "Mira", "PPSA99031", "ICO",
-	                    "2026-10-07T21:30:00Z");
+	/* Every player of a co-op game, each from when they came in. */
+	gwm_hb_player_t players[2] = { { "Mira", "2026-10-07T21:30:00Z" }, { "Fire", "2026-10-07T21:31:10Z" } };
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 1, players, 2, "PPSA92006",
+	                    "Burnout Revenge");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"foregroundAccount\":\"Mira\",\"profileCodeWanted\":true,"
-	               "\"current\":[{\"account\":\"Mira\",\"titleId\":\"PPSA99031\",\"titleName\":\"ICO\","
-	               "\"platform\":\"ps5-cfw\",\"startedAt\":\"2026-10-07T21:30:00Z\"}]}");
+	               "\"current\":[{\"account\":\"Mira\",\"titleId\":\"PPSA92006\",\"titleName\":\"Burnout Revenge\","
+	               "\"platform\":\"ps5-cfw\",\"startedAt\":\"2026-10-07T21:30:00Z\"},"
+	               "{\"account\":\"Fire\",\"titleId\":\"PPSA92006\",\"titleName\":\"Burnout Revenge\","
+	               "\"platform\":\"ps5-cfw\",\"startedAt\":\"2026-10-07T21:31:10Z\"}]}");
 
 	/* SHA-256 against the standard vectors: one block, the empty input, two blocks of padding. */
 	uint8_t digest[GWM_SHA256_LEN];

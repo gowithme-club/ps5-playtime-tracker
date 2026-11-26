@@ -43,13 +43,17 @@ def fake_qr(n=29):
 def state_for(q):
     s = q.get("state", ["code"])[0]
     nick = q.get("nick", ["Example"])[0]
-    v = {"version": "1.2.0"}
+    v = {"version": "1.3.0"}
     if s in ("code", "welcome"):
         v.update(state="code", code="217301", qr=fake_qr())
         if s == "welcome":
             v.update(welcome=True)
     elif s in ("linked", "late"):
         v.update(state="linked", syncAgo=40 if s == "linked" else 900, queued=0 if s == "linked" else 12,
+                 profileUrl="https://gowithme.club/player/" + nick, profileQr=fake_qr(33),
+                 recorded={"seconds": 261240, "games": 42, "trophies": 318})
+    elif s == "update":
+        v.update(state="linked", syncAgo=40, queued=0, latest="1.3.1",
                  profileUrl="https://gowithme.club/player/" + nick, profileQr=fake_qr(33),
                  recorded={"seconds": 261240, "games": 42, "trophies": 318})
     elif s in ("claim", "claiming"):
@@ -62,7 +66,7 @@ def state_for(q):
     return v
 
 
-STATES = ["welcome", "code", "stopped", "connecting", "linked", "late", "claim", "claiming", "offline", "down"]
+STATES = ["welcome", "code", "stopped", "connecting", "linked", "late", "update", "claim", "claiming", "offline", "down"]
 
 
 def frame(query):

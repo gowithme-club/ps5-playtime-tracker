@@ -187,6 +187,32 @@ static void gwm_reply_profile(const char *body, gwm_profile_t *out)
 	}
 }
 
+/* The newest payload release, from the heartbeat answer's "latestVersion"
+ * (the server reads GitHub, which the payload cannot reach). 1 and the
+ * version when the answer has one of the form X.Y.Z. */
+static int gwm_reply_latest(const char *body, char *out, size_t size)
+{
+	char v[16];
+	int a, b, c;
+	char tail;
+
+	if(!gwm_json_get_str(body, "latestVersion", v, sizeof(v))) return 0;
+	if(sscanf(v, "%d.%d.%d%c", &a, &b, &c, &tail) != 3 || a < 0 || b < 0 || c < 0) return 0;
+	snprintf(out, size, "%s", v);
+	return 1;
+}
+
+/* Whether version a is newer than b, both X.Y.Z. */
+static int gwm_version_newer(const char *a, const char *b)
+{
+	int x[3] = { 0 }, y[3] = { 0 };
+
+	if(sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2]) != 3 || sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2]) != 3) return 0;
+	for(int i = 0; i < 3; i++)
+		if(x[i] != y[i]) return x[i] > y[i];
+	return 0;
+}
+
 /* Notification texts. Returns how many; each goes to texts[i]. */
 static int gwm_reply_messages(const char *body, int64_t now, char texts[][256], int max_texts)
 {

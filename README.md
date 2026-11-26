@@ -31,6 +31,7 @@ jailbroken PS5, for PS5 and PS4 games, and syncs them to your
 - Reports queue on the console while it is offline.
 - A gowithme.club tile in Media: the pairing code with a QR code for your
   phone, and once linked, the last report and your profile.
+- A notification and a link on the tile when a newer version is out.
 
 ## Install
 
@@ -65,7 +66,8 @@ regularly if you play PS4 games.
 Each console profile's games go to the gowithme.club profile it is linked to.
 The person who linked the console gets their own profile. Anyone else opens
 the tile while signed in to their profile, scans the code it shows and signs
-in to their own account.
+in to their own account. In local co-op every profile signed in on the
+console gets the game.
 
 **Can I use elfldr?**
 Yes, send the file to port 9021. Under elfldr the console may not give the

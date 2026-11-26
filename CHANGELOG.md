@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+- When a newer release is out, the tile's footer shows "Update to 1.3.1"
+  in green beside the version, linking to the release, and a notification
+  says so once per version.
+- A game left loaded in the background no longer counts as played. The
+  console keeps a game in memory after you go to the home screen, start
+  another game or switch users; the payload now follows the system's own
+  record of when a game is played. Before, a copy of the payload started
+  after a switch could credit the loaded game to the new user.
+- Local co-op: every profile signed in on the console gets the game, each
+  from the moment they joined, and "playing now" shows all of them. Before,
+  only the profile that started the game got it.
+
 ## 1.2.0
 
 - The tile has its own background on the home screen: what gowithme.club is,
