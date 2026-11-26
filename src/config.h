@@ -23,6 +23,13 @@
 #define GWM_DATA_DIR    "/data/gowithme.club"
 #define GWM_CONFIG_FILE GWM_DATA_DIR "/config.cfg"
 
+/* The page the tile opens (web.h), also where a notification's "Open"
+ * leads (log.h). */
+#define GWM_WEB_PORT 7531
+#define GWM_STR_(x) #x
+#define GWM_STR(x) GWM_STR_(x)
+#define GWM_WEB_URL "http://127.0.0.1:" GWM_STR(GWM_WEB_PORT) "/"
+
 #define GWM_TOKEN_MAX   128
 #define GWM_ACCOUNT_MAX 64
 #define GWM_HOST_MAX    96

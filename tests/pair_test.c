@@ -77,11 +77,20 @@ int main(void)
 	CHECK_STR(c.account, "Player");
 
 	/* The console name and identifier go into the heartbeat body; empty ones are not sent. */
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "PS5-123", "00112233445566778899aabbccddeeff", 0, "", "", "", "");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "PS5-123", "00112233445566778899aabbccddeeff",
+	                    "", 0, 0, "", "", "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"deviceName\":\"PS5-123\","
 	               "\"consoleId\":\"00112233445566778899aabbccddeeff\",\"current\":[]}");
-	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", 0, "", "", "", "");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "", 1, 0, "", "", "", "");
 	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"current\":[]}");
+	/* The open profile, and whether the tile is on screen to show its code. */
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 0, 0, "", "", "", "");
+	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"foregroundAccount\":\"Mira\",\"current\":[]}");
+	gwm_build_heartbeat(out, sizeof(out), "2026-10-07T21:35:18Z", "", "", "Mira", 1, 1, "Mira", "PPSA99031", "ICO",
+	                    "2026-10-07T21:30:00Z");
+	CHECK_STR(out, "{\"sentAt\":\"2026-10-07T21:35:18Z\",\"foregroundAccount\":\"Mira\",\"profileCodeWanted\":true,"
+	               "\"current\":[{\"account\":\"Mira\",\"titleId\":\"PPSA99031\",\"titleName\":\"ICO\","
+	               "\"platform\":\"ps5-cfw\",\"startedAt\":\"2026-10-07T21:30:00Z\"}]}");
 
 	/* SHA-256 against the standard vectors: one block, the empty input, two blocks of padding. */
 	uint8_t digest[GWM_SHA256_LEN];

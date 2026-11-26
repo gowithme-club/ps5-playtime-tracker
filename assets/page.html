@@ -29,14 +29,19 @@
   /* Read from a couch: the scale follows the browser window, which the
      console opens over the home screen rather than full screen. */
   font-size: clamp(14px, min(1.45vw, 2.7vh), 30px);
-  --qr: clamp(180px, min(30vw, 54vh), 520px);
+  --qr: clamp(160px, min(28vw, 48vh), 480px);
+  /* The layout's right column keeps this width in every state, so the
+     header and the footer never move; a smaller QR code sits inside it. */
+  --qr-col: clamp(160px, min(28vw, 48vh), 480px);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   display: flex;
   flex-direction: column;
-  padding: clamp(1rem, 5vh, 3rem) clamp(1.5rem, 5vw, 4.5rem) clamp(0.75rem, 3vh, 2rem);
+  /* The same room above and below: the bottom band must not sit on the
+     window's edge. */
+  padding: clamp(1rem, 5vh, 3rem) clamp(1.5rem, 5vw, 4.5rem);
   background: var(--background);
   color: var(--text);
   font: 400 1rem/1.4 var(--font-main);
@@ -54,7 +59,11 @@ body {
   justify-content: space-between;
   min-height: 0;
 }
-.copy { flex: 1 1 auto; max-width: 32rem; margin-right: clamp(2rem, 6vw, 6rem); }
+/* One centred column for every state: the text, the gap, the QR code. The
+   header and the footer keep its edges. */
+:root { --col: 34rem; --gap: clamp(3rem, 7vw, 7rem); }
+header, .stage, .hello, .foot { width: 100%; max-width: calc(var(--col) + var(--gap) + var(--qr-col)); margin-left: auto; margin-right: auto; }
+.copy { flex: 0 1 auto; max-width: var(--col); margin-right: var(--gap); }
 
 h1 {
   margin: 0;
@@ -64,25 +73,29 @@ h1 {
   letter-spacing: -0.02em;
   text-wrap: balance;
 }
-.lead { margin: 0.9rem 0 0; color: var(--muted); font-size: 1.15rem; line-height: 1.45; }
+.lead { margin: 0.9rem 0 0; color: var(--muted); font-size: 1.2rem; line-height: 1.45; }
+.lead b { color: var(--text); font-weight: 600; }
 
+/* Not linked yet. Linking leads, near the middle where the eye and the
+   stick cursor start; what the service is stays in the footer. */
+.intro h1 { font-size: 3rem; line-height: 1.05; letter-spacing: -0.025em; }
+
+/* Linked: the owner's name heads the page and what this console recorded is
+   the content, so its QR code steps back to a smaller, secondary route. */
+.linked { --qr: clamp(160px, min(17vw, 34vh), 320px); }
 .status { display: flex; align-items: center; margin: 1rem 0 0; font-size: 1.15rem; }
+.status.late { color: var(--warning); }
 .dot { flex: none; width: 0.6rem; height: 0.6rem; margin-right: 0.65rem; border-radius: 50%; background: var(--muted); }
 .dot.live { background: var(--brand); box-shadow: 0 0 0 0 #c7f54766; animation: live 2.6s var(--ease-out) infinite; }
 .dot.late { background: var(--warning); }
 @keyframes live { 0% { box-shadow: 0 0 0 0 #c7f54766; } 70%, 100% { box-shadow: 0 0 0 0.6rem #c7f54700; } }
+/* What the console recorded: large numbers, quiet units, a label after. */
+.recorded { margin: 1.6rem 0 0; color: var(--muted); font-size: 1.35rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.recorded b { color: var(--text); font-size: 1.6em; font-weight: 700; letter-spacing: -0.02em; }
+/* Groups apart, so "73 h" and "42 games" read as two figures. */
+.recorded .sep { margin: 0 0.75em; color: #5d6166; }
+.recorded-label { margin: 0.35rem 0 0; color: var(--muted); font-size: 1rem; }
 
-.code {
-  display: flex;
-  margin: 1.8rem 0 0;
-  font: 600 4.4rem/1 var(--font-mono);
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
-.code span + span { margin-left: 0.35em; }
-
-.hint { margin: 1rem 0 0; color: var(--muted); font-size: 1.05rem; line-height: 1.45; }
-.hint b { color: var(--text); font-weight: 600; }
 
 .actions { margin-top: 1.8rem; }
 /* Sized for a cursor steered with a stick: a big target, and a ring on
@@ -104,7 +117,9 @@ h1 {
 .button:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
 .button:focus { outline: none; }
 .button:hover, .button:focus-visible { outline: 3px solid var(--brand); outline-offset: 4px; }
-.button[disabled] { opacity: 0.5; cursor: default; }
+.button[disabled] { opacity: 0.6; cursor: default; }
+/* Hidden buttons stay in the markup: space only between visible ones. */
+.button:not([hidden]) ~ .button { margin-left: 1rem; }
 
 .qr { flex: none; margin: 0; text-align: center; }
 .qr-well {
@@ -116,12 +131,86 @@ h1 {
   box-shadow: 0 1.2rem 2.5rem -1rem #00000099;
 }
 .qr-well svg { display: block; width: 100%; height: 100%; }
-.qr-well.wait { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.qr-well.wait { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); animation: waiting 1.4s ease-in-out infinite alternate; }
+@keyframes waiting { to { background: #2a2d31; } }
 .qr-well.fresh svg { animation: appear var(--dur-2) var(--ease-out); }
 @keyframes appear { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
-.qr figcaption { margin-top: 0.9rem; color: var(--muted); font-size: 1rem; }
+.qr figcaption { max-width: var(--qr); margin: 0.9rem auto 0; color: var(--muted); font-size: 1rem; line-height: 1.4; }
+.qr figcaption b { color: var(--text); font-weight: 600; }
 
-.foot { flex: none; text-align: right; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+/* Where a QR code would stand, the tile's gamepad, quiet, so a text-only
+   state keeps the layout's balance. */
+.emblem { flex: none; width: var(--qr-col); }
+.emblem svg { display: block; width: 100%; height: auto; fill: #1f2924; }
+
+/* The code under its QR code: two ways to the same step. */
+.code {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0 0;
+  font: 600 2.8rem/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.code span + span { margin-left: 0.35em; }
+
+/* One row under a hairline, two groups on the column's edges: what the
+   service is and where it reads from and reports to on the left, the build
+   on the right. Text and marks share one colour and one height. */
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.about { display: flex; align-items: center; min-width: 0; }
+.slogan { margin: 0 1.6rem 0 0; font-size: 0.95rem; white-space: nowrap; }
+.marks { display: flex; align-items: center; }
+.marks svg { display: block; width: auto; height: 1.15rem; margin-right: 1rem; }
+.marks svg:last-child { margin-right: 0; }
+.marks svg, .marks svg path { fill: currentColor; }
+
+/* The build, linked to the repository. A big target for the stick cursor,
+   quiet until it is under it; the negative margin keeps its text on the
+   column's edge. */
+.source {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 2.4rem;
+  margin: 0 -0.5rem 0 1.6rem;
+  padding: 0 0.5rem;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  transition: color var(--dur-1) var(--ease-out);
+}
+.source svg { width: 1.15rem; height: 1.15rem; margin-right: 0.5em; }
+.source:hover { color: var(--text); }
+.source:focus { outline: none; }
+.source:hover, .source:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+/* The first visit, until its button is pressed (web.h): what the service
+   does and one way on. The diagram is the landing's own, framed from
+   gowithme.club/embed/flow rather than copied, so the two never drift. It is
+   laid out wide, as on the landing, and scaled down to fit; it shows once the
+   framed page says it is ready, so an error page never does. */
+.hello { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; transition: opacity 220ms var(--ease-out); }
+.hello.out { opacity: 0; }
+.hello .copy { display: flex; align-items: center; justify-content: space-between; gap: 2rem; max-width: none; margin-right: 0; }
+.hello h1 { font-size: 1.7rem; line-height: 1.15; letter-spacing: -0.02em; }
+.hello .actions { flex: none; margin-top: 0; }
+.hello h1, .hello .actions, .stage.enter .copy, .stage.enter .qr, .stage.enter .emblem { animation: rise 640ms var(--ease-out) both; }
+.hello .actions { animation-delay: 90ms; }
+@keyframes rise { from { opacity: 0; transform: translateY(0.8rem); } }
+.flow { position: relative; flex: none; margin: 1.3rem auto 0; overflow: hidden; }
+.flow iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; opacity: 0; transition: opacity 400ms var(--ease-out); }
+.flow iframe.on { opacity: 1; }
 
 [hidden] { display: none !important; }
 
@@ -144,13 +233,13 @@ h1 {
 <g id="l-layer"><path id="l" d="M2147.78445 44.58091C2145.92778 45.59277 2144.69099 46.88824 2143.65074 48.91197L2142.16635 51.79933 2141.99238 180.7685C2141.86176 277.08537 2141.99238 310.41973 2142.50598 312.43191 2143.35148 315.74147 2146.66463 319.45784 2149.5378 320.3202 2150.80368 320.70005 2162.13725 320.95478 2177.49468 320.94836 2201.33981 320.93874 2203.50523 320.84698 2205.69796 319.75363 2208.42567 318.39336 2210.39752 316.2766 2211.27865 313.76459 2211.99116 311.73124 2212.28863 52.60587 2211.58028 50.51606 2210.67184 47.8353 2208.69761 45.51193 2206.3505 44.35955 2204.09364 43.25208 2201.96979 43.16418 2177.17524 43.15134 2150.61131 43.13723 2150.41596 43.14685 2147.78445 44.58091" fill="#F3F5EB" fill-rule="evenodd"/></g>
 <g id="u-layer"><path id="u" d="M2235.04944 122.38828C2233.73606 123.18192 2232.08721 124.93513 2231.33611 126.33618L2229.98532 128.85706 2230.16463 190.92898C2230.3392 251.66129 2230.37067 253.12758 2231.60864 258.88 2235.11951 275.18844 2240.48347 286.30058 2250.08565 297.15873 2275.96796 326.42691 2323.71345 329.1207 2350.78682 302.84021 2353.18262 300.51378 2353.28949 300.63033 2353.63803 305.94698 2353.92422 310.31038 2355.67698 313.17075 2359.07325 314.81629 2361.32001 315.90445 2363.39755 315.99566 2386.14781 316.00516 2412.26702 316.01656 2413.92478 315.85632 2417.08533 313.01938 2420.79925 309.68586 2420.5855 315.48325 2420.5855 218.12218 2420.5855 118.95533 2420.90672 126.51543 2416.54026 122.96277L2414.44372 121.25642 2387.03844 121.25642 2359.63315 121.25642 2357.4523 123.03117C2353.26456 126.43816 2353.52224 122.79302 2353.31502 181.54345 2353.17906 220.18069 2352.93562 235.35981 2352.42024 237.3043 2350.36407 245.06583 2344.56429 253.31442 2338.83694 256.6207 2324.96686 264.62862 2306.51716 260.12143 2299.87484 247.10217 2296.5047 240.49721 2296.50945 240.58715 2296.49995 183.14972 2296.49045 126.07966 2296.58901 127.91902 2293.34534 124.2137 2290.45732 120.91313 2290.69364 120.93909 2263.1221 120.94986 2237.55033 120.96063 2237.40011 120.96823 2235.04944 122.38828" fill="#F3F5EB" fill-rule="evenodd"/></g>
 <g id="b-layer"><path id="b" d="M2443.91081 44.65263C2442.1438 45.68021 2440.89276 47.05576 2439.95819 48.99863L2438.59078 51.84178 2438.59078 182.10337 2438.59078 309.08694 2439.93148 311.20007C2440.66892 312.36235 2442.46205 313.94254 2443.91675 314.71242 2446.53461 316.09733 2446.81308 316.11163 2471.52153 316.1079 2486.07027 316.10604 2497.3593 315.8492 2498.586 315.49225 2502.59324 314.32623 2505.68491 309.70384 2505.68491 304.87748 2505.68491 303.53174 2505.79773 302.4304 2505.93548 302.4304 2506.07323 302.4304 2508.41143 304.18657 2511.13082 306.33266 2524.36499 316.77642 2539.43979 321.61335 2556.45083 320.87519 2610.34998 318.53632 2647.52726 270.83858 2642.91201 209.94716 2639.43262 164.04725 2613.66075 131.77572 2573.13767 122.57758 2564.44869 120.58789 2546.45618 120.56178 2538.55332 122.52908 2528.36214 125.04331 2518.1757 130.31432 2510.3821 137.10767 2508.4803 138.76496 2506.8457 140.12127 2506.75011 140.12127 2506.65392 140.12127 2506.66579 121.56268 2506.77564 97.78002 2506.98939 51.53363 2506.94901 50.77698 2504.06397 47.00679 2501.11539 43.15369 2501.07739 43.14912 2472.54694 43.14912 2446.49898 43.14912 2446.49601 43.14912 2443.91081 44.65263M2533.12582 181.79865C2516.52507 186.35388 2505.96457 200.38957 2505.22416 218.88287 2504.87741 227.5406 2505.9907 233.27925 2509.40359 240.42023 2517.43292 257.22265 2537.74403 265.67018 2554.89579 259.34075 2580.84459 249.76451 2588.43039 212.43465 2568.63465 191.7306 2559.25928 181.92427 2546.08983 178.24091 2533.12582 181.79865" fill="#F3F5EB" fill-rule="evenodd"/></g></g></svg></header>
-<main class="stage" aria-live="polite">
+<main class="stage" id="stage">
   <section class="copy">
-    <h1 id="title"></h1>
+    <h1 id="title" aria-live="polite"></h1>
     <p class="status" id="status" hidden><span class="dot" id="dot"></span><span id="statusText"></span></p>
+    <p class="recorded" id="recorded" hidden></p>
+    <p class="recorded-label" id="recordedLabel" hidden></p>
     <p class="lead" id="lead"></p>
-    <div class="code" id="code" hidden></div>
-    <p class="hint" id="hint" hidden></p>
     <div class="actions" id="actions" hidden>
       <a class="button" id="open" hidden></a>
       <button class="button" id="pair" type="button" hidden></button>
@@ -158,65 +247,135 @@ h1 {
   </section>
   <figure class="qr" id="qrBox" hidden>
     <div class="qr-well" id="qr"></div>
+    <div class="code" id="code" hidden></div>
     <figcaption id="qrCaption" hidden></figcaption>
   </figure>
+  <div class="emblem" id="emblem" aria-hidden="true" hidden><svg viewBox="0 0 321.54 200"><path fill-rule="evenodd" d="M69.01415 0.26272C48.87409 2.82587 34.55387 9.10449 21.93415 20.90465-0.07443 41.48411-5.51841 71.87352 5.59249 112.12565 19.90625 163.98086 39.64785 191.92774 66.42193 198.23868 93.61064 204.64761 116.36555 193.53348 133.58169 165.43474 148.13346 141.68581 151.17154 138.8782 161.27765 139.84853 169.98587 140.68532 171.83285 142.69922 186.94032 167.8245 200.9773 191.17065 217.74436 201.14429 240.29572 199.56333 261.82397 198.05452 278.69549 185.49511 292.09061 161.00955 309.12583 129.86735 321.58831 91.33726 321.54092 69.95547 321.45261 30.4572 291.85691 0.70966 252.63435 0.69566 226.71105 0.68704 209.81476 11.73548 193.40526 39.42606 184.28348 54.82 179.13027 60.782 172.58456 63.51638 155.62258 70.60379 142.3093 63.25468 131.48487 40.82717 121.74384 20.64187 114.98274 12.61966 102.36733 6.27319 93.6828 1.90507 78.13378-0.89715 69.01415 0.26272M65.48714 48.05136C61.06948 50.74481 59.86007 53.8852 59.86007 62.65589L59.86007 69.58608 53.02035 69.58608C41.11142 69.58608 36.16714 73.0614 36.16714 81.43254 36.16714 89.79937 40.89388 93.279 52.2611 93.279L59.63929 93.279 60.01838 102.52678C60.49008 114.01247 62.8863 116.97193 71.71622 116.97193 82.13034 116.97193 84.62995 113.96078 84.62995 101.41214L84.62995 93.49332 94.29343 93.11638C105.63588 92.67483 108.09887 91.09172 109.10474 83.59075 110.42724 73.73342 105.19325 69.60438 91.36089 69.59254L84.62995 69.58608 84.62995 61.43786C84.62995 51.89392 83.60361 49.48478 78.65502 47.41703 73.63858 45.32129 69.64955 45.51298 65.48714 48.05136M240.9742 56.5065C229.7879 60.47507 223.15927 69.3513 223.16465 80.35559 223.17219 95.64399 234.11509 106.20242 249.95058 106.20242 258.66635 106.20242 263.6074 103.90205 269.65987 97.02679 286.71124 77.65459 265.5653 47.78427 240.9742 56.5065"/></svg></div>
 </main>
-<footer class="foot" id="version"></footer>
+<main class="hello" id="hello" hidden>
+  <section class="copy">
+    <h1 id="helloTitle"></h1>
+    <div class="actions"><button class="button" id="helloGo" type="button"></button></div>
+  </section>
+  <div class="flow" id="flow" aria-hidden="true"><iframe id="flowFrame" title="" tabindex="-1" scrolling="no"></iframe></div>
+</main>
+<footer class="foot">
+  <div class="about">
+    <p class="slogan" id="slogan"></p>
+    <div class="marks" id="marks"><svg viewBox="0 0 180 137" fill="#fff" role="img" aria-label="PlayStation"><path d="m104.65 11.789c24.13 8.33 32.309 18.699 32.309 42.066 0 22.766-13.982 31.399-31.741 22.779v-42.458c0-4.976-.909-9.561-5.557-10.862-3.562-1.149-5.773 2.179-5.773 7.155v106.255l-28.494-9.094v-126.685c12.119 2.261 29.77 7.579 39.256 10.819z"/><path d="m99.288 118.245 45.83-16.356c5.204-1.895 5.999-4.509 1.774-5.892-4.224-1.384-11.86-.992-17.051.884l-30.54 10.773v-17.171l1.768-.6c6.9-2.232 14.013-3.741 21.225-4.502 12.41-1.371 27.605.189 39.528 4.711 13.445 4.256 14.961 10.527 11.544 14.847s-11.791 7.395-11.791 7.395l-62.274 22.413z"/><path d="m13.123 116.515c-13.761-3.935-16.098-12.056-9.808-16.736 5.816-4.338 15.706-7.578 15.706-7.578l40.841-14.588v16.622l-29.391 10.565c-5.198 1.895-5.994 4.522-1.769 5.905s11.86.991 17.051-.878l14.096-5.141v14.873c-.89.164-1.894.322-2.81.473-14.707 2.399-29.779 1.192-43.916-3.517z"/></svg><svg viewBox="0 0 183 183" fill="#fff" role="img" aria-label="Xbox"><path d="m81.46 181.877c-13.929-1.329-28.038-6.341-40.175-14.271-10.164-6.642-12.459-9.359-12.459-14.814 0-10.929 12.016-30.09 32.546-51.909 11.674-12.398 27.917-26.93 29.668-26.548 3.422.765 30.735 27.454 40.96 39.994 16.182 19.886 23.63 36.149 19.846 43.395-2.879 5.514-20.692 16.283-33.774 20.409-10.789 3.422-24.959 4.871-36.612 3.744zm-66.341-40.437c-8.433-12.962-12.7-25.743-14.773-44.2-.685-6.098-.443-9.58 1.549-22.1 2.476-15.599 11.332-33.633 22-44.743 4.549-4.73 4.951-4.851 10.486-2.979 6.723 2.274 13.888 7.226 25.019 17.309l6.501 5.878-3.542 4.367c-16.485 20.249-33.855 48.951-40.396 66.703-3.563 9.641-4.992 19.343-3.462 23.368 1.026 2.717.08 1.711-3.382-3.603zm148.139 2.194c.825-4.065-.222-11.553-2.697-19.101-5.334-16.343-23.227-46.776-39.651-67.447l-5.173-6.501 5.595-5.153c7.307-6.723 12.379-10.748 17.853-14.15 4.328-2.697 10.487-5.072 13.144-5.072 1.63 0 7.386 5.978 12.036 12.519 7.206 10.105 12.499 22.382 15.176 35.143 1.731 8.252 1.872 25.904.282 34.116-1.308 6.743-4.086 15.499-6.783 21.456-2.033 4.449-7.065 13.083-9.279 15.901-1.127 1.409-1.127 1.409-.503-1.711zm-80.309-120.523c-7.588-3.865-19.282-7.991-25.743-9.118-2.275-.383-6.119-.604-8.595-.483-5.333.261-5.092 0 3.462-4.046 7.105-3.361 13.043-5.334 21.094-7.024 9.057-1.913 26.065-1.933 34.982-.041 9.621 2.033 20.952 6.26 27.333 10.185l1.892 1.167-4.348-.221c-8.655-.443-21.254 3.059-34.8 9.661-4.086 1.993-7.629 3.583-7.89 3.522-.242-.04-3.583-1.67-7.387-3.602z"/></svg><svg viewBox="0 0 191 191" fill="#fff" role="img" aria-label="Steam"><path d="m94.478.439c-49.802 0-90.601 38.401-94.478 87.202l50.813 21.009c4.306-2.945 9.507-4.67 15.103-4.67.502 0 1.001.017 1.496.045l22.597-32.753c0-.157-.002-.309-.002-.463 0-19.715 16.037-35.754 35.754-35.754 19.714 0 35.751 16.039 35.751 35.754s-16.037 35.756-35.751 35.756c-.272 0-.542-.007-.813-.013l-32.228 22.996c.017.418.032.844.032 1.268 0 14.801-12.038 26.837-26.836 26.837-12.989 0-23.851-9.271-26.311-21.549l-36.339-15.024c11.252 39.794 47.811 68.968 91.212 68.968 52.36 0 94.805-42.447 94.805-94.801 0-52.363-42.447-94.808-94.805-94.808"/><path d="m59.41 144.29-11.646-4.811c2.064 4.297 5.634 7.895 10.375 9.871 10.248 4.269 22.063-.593 26.334-10.85 2.069-4.96 2.081-10.435.03-15.407-2.046-4.975-5.908-8.854-10.874-10.924-4.927-2.051-10.205-1.976-14.843-.225l12.029 4.974c7.559 3.151 11.134 11.83 7.983 19.389-3.144 7.561-11.83 11.136-19.388 7.983"/><path d="m149.582 70.809c0-13.135-10.686-23.823-23.823-23.823-13.136 0-23.823 10.688-23.823 23.823 0 13.137 10.687 23.821 23.823 23.821 13.137-.002 23.823-10.686 23.823-23.821m-41.68-.041c0-9.884 8.013-17.895 17.897-17.895s17.898 8.011 17.898 17.895-8.014 17.895-17.898 17.895-17.897-8.013-17.897-17.895"/></svg><svg viewBox="0 0 148 148" fill="#fff" role="img" aria-label="Nintendo Switch"><path d="m69.637.493h-32.051c-20.753 0-37.586 16.833-37.586 37.586v71.482c0 20.752 16.833 37.585 37.586 37.585h32.051c.577 0 1.038-.461 1.038-1.037v-144.578c0-.577-.461-1.038-1.038-1.038zm-10.722 134.893h-21.329c-6.918 0-13.374-2.651-18.217-7.609-4.842-4.842-7.609-11.299-7.609-18.216v-71.482c0-6.918 2.652-13.374 7.609-18.217 4.843-4.842 11.299-7.609 18.217-7.609h21.329z"/><path d="m86.47 147.146h22.598c20.752 0 37.585-16.833 37.585-37.585v-71.482c0-20.753-16.833-37.586-37.585-37.586h-22.713c-.577 0-.923.461-.923.922v144.694c0 .576.462 1.037 1.038 1.037zm27.901-80.82c8.186 0 14.873 6.687 14.873 14.872 0 8.186-6.687 14.873-14.873 14.873s-14.873-6.687-14.873-14.873c.116-8.185 6.687-14.872 14.873-14.872z"/><path d="m22.828 44.535c0 7.609 6.226 13.835 13.835 13.835 7.61 0 13.836-6.226 13.836-13.835s-6.226-13.835-13.836-13.835c-7.724 0-13.835 6.11-13.835 13.835z"/></svg><svg viewBox="0 0 24 24" role="img" aria-label="Telegram"><path fill="#fff" fill-rule="evenodd" d="M12 0a12 12 0 1 1 0 24a12 12 0 1 1 0-24ZM16.906 7.224c.1-.002.32.023.464.14a.506.506 0 0 1 .172.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.5 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.35-.374-1.298-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.477-1.635z"/></svg><svg viewBox="0 0 24 24" fill="#fff" role="img" aria-label="Discord"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg></div>
+  </div>
+  <a class="source" id="source" aria-label="GitHub"><span id="version"></span></a>
+</footer>
 <script>
 "use strict";
 var ru = /^ru\b/i.test(navigator.language || "");
+
+// Russian plural forms: 1 игра, 2 игры, 5 игр, 21 игра, 11 игр.
+function plural(n, one, few, many) {
+  var t = n % 100, u = n % 10;
+  if (t >= 11 && t <= 14) return many;
+  return u === 1 ? one : u >= 2 && u <= 4 ? few : many;
+}
 var T = ru ? {
-  link: "Привяжите PS5\u00a0к\u00a0профилю",
-  about: "Время в\u00a0играх и\u00a0трофеи с\u00a0этой консоли появятся в\u00a0профиле gowithme.club рядом с\u00a0PSN, Steam, Xbox и\u00a0Switch.",
+  helloTitle: "Кросс-платформенный трекер игровой статистики",
+  helloGo: "Привязать PS5",
+  intro: "Вся игровая история в\u00a0одном\u00a0профиле",
+  link: "Привяжите\u00a0PS5 к\u00a0профилю",
+  claim: function (name) { return name ? name + ", привяжите свой профиль" : "Привяжите свой профиль"; },
   scan: "Отсканируйте QR-код телефоном или\u00a0введите код на\u00a0<b>gowithme.club/ps5</b>",
+  qrCode: "QR-код: gowithme.club/ps5 с\u00a0кодом",
+  qrProfile: "QR-код профиля",
   getting: "Получаем код…",
   showCode: "Показать код",
   offline: "Нет связи с\u00a0gowithme.club",
   offlineText: "Проверьте подключение консоли к\u00a0интернету. Если обновления заблокированы через\u00a0DNS, разрешите gowithme.club.",
   linked: "Консоль привязана",
-  last: "Последний отчёт: ",
-  first: "Ждём первый отчёт",
-  goesTo: function (nick) { return nick ? "Время и\u00a0трофеи уходят в\u00a0профиль " + nick + "." : "Время и\u00a0трофеи уходят на\u00a0gowithme.club."; },
-  queued: "Отчёты ждут на\u00a0консоли и\u00a0уйдут, когда появится связь.",
+  synced: function (when) { return "Синхронизировано " + when; },
+  first: "Ждём первую синхронизацию",
+  recordedLabel: "записано с\u00a0этой PS5",
+  hours: function (n) { return n + "\u00a0ч"; },
+  minutes: function (n) { return n + "\u00a0мин"; },
+  games: function (n) { return n + "\u00a0" + plural(n, "игра", "игры", "игр"); },
+  trophies: function (n) { return n + "\u00a0" + plural(n, "трофей", "трофея", "трофеев"); },
+  goesTo: "Время и\u00a0трофеи с\u00a0этой PS5 попадают на\u00a0gowithme.club.",
   onPhone: "Откройте на\u00a0телефоне",
   profile: "Открыть профиль",
   site: "Открыть gowithme.club",
   down: "Трекер не запущен",
   downText: "Запустите gowithme.club в\u00a0Payload Manager.",
   now: "только что",
-  min: function (n) { return n + " мин назад"; },
-  hour: function (n) { return n + " ч назад"; }
+  min: function (n) { return n + "\u00a0мин назад"; },
+  hour: function (n) { return n + "\u00a0ч назад"; },
+  day: function (n) { return n + "\u00a0" + plural(n, "день", "дня", "дней") + " назад"; }
 } : {
+  helloTitle: "Cross-platform game tracker",
+  helloGo: "Link this PS5",
+  intro: "Your whole gaming history in\u00a0one\u00a0profile",
   link: "Link this PS5 to\u00a0your\u00a0profile",
-  about: "Playtime and trophies from this console will appear on your gowithme.club profile, next to PSN, Steam, Xbox and Switch.",
-  scan: "Scan the QR code with your phone or enter the code at <b>gowithme.club/ps5</b>",
+  claim: function (name) { return name ? name + ", link your profile" : "Link your profile"; },
+  scan: "Scan the QR code with your phone or\u00a0enter the code at <b>gowithme.club/ps5</b>",
+  qrCode: "QR code: gowithme.club/ps5 with the code",
+  qrProfile: "QR code of the profile",
   getting: "Getting a code…",
   showCode: "Show code",
   offline: "Can't reach gowithme.club",
   offlineText: "Check the console's internet connection. If you block updates through DNS, let gowithme.club through.",
   linked: "Console linked",
-  last: "Last report: ",
-  first: "Waiting for the first report",
-  goesTo: function (nick) { return nick ? "Playtime and trophies go to " + nick + "'s profile." : "Playtime and trophies go to gowithme.club."; },
-  queued: "Reports are waiting on the console and will go out once it's back online.",
+  synced: function (when) { return "Synced " + when; },
+  first: "Waiting for the first sync",
+  recordedLabel: "recorded on\u00a0this PS5",
+  hours: function (n) { return n + "\u00a0h"; },
+  minutes: function (n) { return n + "\u00a0min"; },
+  games: function (n) { return n + "\u00a0" + (n === 1 ? "game" : "games"); },
+  trophies: function (n) { return n + "\u00a0" + (n === 1 ? "trophy" : "trophies"); },
+  goesTo: "Playtime and trophies from this PS5 go to\u00a0gowithme.club.",
   onPhone: "Open on your phone",
   profile: "Open profile",
   site: "Open gowithme.club",
   down: "The tracker isn't running",
   downText: "Start gowithme.club in Payload Manager.",
   now: "just now",
-  min: function (n) { return n + " min ago"; },
-  hour: function (n) { return n + " h ago"; }
+  min: function (n) { return n + "\u00a0min ago"; },
+  hour: function (n) { return n + "\u00a0h ago"; },
+  day: function (n) { return n + "\u00a0" + (n === 1 ? "day" : "days") + " ago"; }
 };
 document.documentElement.lang = ru ? "ru" : "en";
 
+var REPO = "github.com/gowithme-club/ps5-playtime-tracker";
+var GITHUB_MARK = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>';
+document.getElementById("slogan").textContent = T.intro;
+var source = document.getElementById("source");
+source.href = "https://" + REPO;
+source.insertAdjacentHTML("afterbegin", GITHUB_MARK);
+
 function $(id) { return document.getElementById(id); }
-function text(id, value) { var el = $(id); el.hidden = !value; el.textContent = value || ""; }
+// Writes only what changed: the page redraws every 3 s, and a screen reader
+// should hear a change, not the same words again.
+function text(id, value) { var el = $(id); el.hidden = !value; if (el.textContent !== (value || "")) el.textContent = value || ""; }
+function html(id, value) { var el = $(id); el.hidden = !value; if (el.innerHTML !== (value || "")) el.innerHTML = value || ""; }
+
+// "73 h · 42 games · 318 trophies", numbers in bold. From an hour on, time
+// is rounded to whole hours; under an hour it is minutes (owner's choice,
+// 2026-11-26). Empty while nothing is recorded or
+// the server sends no totals.
+function recordedHtml(r) {
+  if (!r || !(r.seconds > 0 || r.trophies > 0)) return "";
+  var parts = [];
+  function grouped(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0"); }
+  // The function's text with its leading number grouped and in bold.
+  function num(fn, n) { return fn(n).replace(/^\d+/, "<b>" + grouped(n) + "</b>"); }
+  if (r.seconds >= 3600) parts.push(num(T.hours, Math.round(r.seconds / 3600)));
+  else if (r.seconds > 0) parts.push(num(T.minutes, Math.max(1, Math.floor(r.seconds / 60))));
+  if (r.games > 0) parts.push(num(T.games, r.games));
+  if (r.trophies > 0) parts.push(num(T.trophies, r.trophies));
+  return parts.join('<span class="sep" aria-hidden="true">·</span>');
+}
 
 function ago(s) {
   if (s < 60) return T.now;
   if (s < 3600) return T.min(Math.floor(s / 60));
-  return T.hour(Math.floor(s / 3600));
+  if (s < 2 * 86400) return T.hour(Math.floor(s / 3600));
+  return T.day(Math.floor(s / 86400));
 }
 
 // The nickname is the last part of the profile address.
@@ -226,7 +385,7 @@ function nickFrom(url) {
 
 // Rows of 0 and 1 become one path of horizontal runs, with the quiet zone
 // the code needs around it.
-function qrSvg(rows) {
+function qrSvg(rows, label) {
   var n = rows.length, q = 3, d = "";
   for (var y = 0; y < n; y++) {
     var row = rows[y];
@@ -240,20 +399,22 @@ function qrSvg(rows) {
   }
   var size = n + 2 * q;
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + " " + size +
-    '" shape-rendering="crispEdges" role="img" aria-label="QR"><rect width="' + size + '" height="' + size +
+    '" shape-rendering="crispEdges" role="img" aria-label="' + label + '"><rect width="' + size + '" height="' + size +
     '" fill="#fff"/><path fill="#16181a" d="' + d + '"/></svg>';
 }
 
 var shownQr = null;
 
-function showQr(rows, key, caption) {
+function showQr(rows, key, caption, label) {
   var box = $("qrBox"), well = $("qr");
   box.hidden = rows === undefined;
+  // No QR code to show: the gamepad holds its place.
+  $("emblem").hidden = !box.hidden;
   text("qrCaption", caption);
   if (rows && rows.length) {
     well.className = "qr-well";
     if (shownQr !== key) {
-      well.innerHTML = qrSvg(rows);
+      well.innerHTML = qrSvg(rows, label);
       well.className = "qr-well fresh";
       shownQr = key;
     }
@@ -265,56 +426,131 @@ function showQr(rows, key, caption) {
   }
 }
 
+// The landing's diagram (see .flow). It is laid out for a wide page: the frame
+// gets that size and is scaled to the room left under the title. The height
+// leaves some slack for a taller font; the framed page has the same
+// background, so the slack does not show.
+var FLOW_ORIGIN = "https://gowithme.club";
+var FLOW_WIDTH = 1500, FLOW_HEIGHT = 584;
+
+function fitFlow() {
+  var box = $("flow"), frame = $("flowFrame");
+  var room = $("hello").clientHeight - document.querySelector(".hello .copy").offsetHeight - 24;
+  var k = Math.max(0.3, Math.min(box.parentNode.clientWidth / FLOW_WIDTH, room / FLOW_HEIGHT));
+  frame.style.width = FLOW_WIDTH + "px";
+  frame.style.height = FLOW_HEIGHT + "px";
+  frame.style.transform = "scale(" + k + ")";
+  box.style.width = Math.floor(FLOW_WIDTH * k) + "px";
+  box.style.height = Math.floor(FLOW_HEIGHT * k) + "px";
+}
+
+// Loaded once the server has answered: before that the frame would only fail.
+function loadFlow() {
+  var frame = $("flowFrame");
+  if (frame.getAttribute("src")) return;
+  frame.setAttribute("src", FLOW_ORIGIN + (ru ? "" : "/en") + "/embed/flow");
+}
+
+window.addEventListener("message", function (e) {
+  if (e.origin === FLOW_ORIGIN && e.data === "gwm-flow-ready") $("flowFrame").className = "on";
+});
+
+var welcomed = false, last = null;
+
 function render(s) {
   var state = s.state;
-  if (s.version) $("version").textContent = "v" + s.version;
+  if (s.version) {
+    $("version").textContent = "v" + s.version;
+    $("source").setAttribute("aria-label", "GitHub, v" + s.version);
+  }
+
+  // The welcome stays until its button, even while the state changes under it.
+  var welcome = !!s.welcome && !welcomed;
+  $("hello").hidden = !welcome;
+  $("stage").hidden = welcome;
+  if (welcome) {
+    document.body.className = "intro";
+    fitFlow();
+    if (state === "code" || state === "linked") loadFlow();
+    return;
+  }
 
   var open = $("open"), pair = $("pair");
+  document.body.className = "";
   open.hidden = true;
   pair.hidden = true;
   $("status").hidden = true;
+  html("recorded", "");
+  text("recordedLabel", "");
   text("code", "");
-  $("hint").hidden = true;
 
   if (state === "linked") {
-    text("title", T.linked);
+    document.body.className = "linked";
+    var nick = nickFrom(s.profileUrl);
     var fresh = s.syncAgo >= 0 && s.syncAgo < 600;
     var stuck = s.queued > 0 && (s.syncAgo < 0 || s.syncAgo > 300);
+    text("title", nick || T.linked);
     $("dot").className = "dot" + (stuck ? " late" : fresh ? " live" : "");
-    text("statusText", s.syncAgo >= 0 ? T.last + ago(s.syncAgo) : T.first);
+    $("status").className = "status" + (stuck ? " late" : "");
+    text("statusText", s.syncAgo >= 0 ? T.synced(ago(s.syncAgo)) : T.first);
     $("status").hidden = false;
-    text("lead", stuck ? T.queued : T.goesTo(nickFrom(s.profileUrl)));
+    var rec = recordedHtml(s.recorded);
+    html("recorded", rec);
+    text("recordedLabel", rec ? T.recordedLabel : "");
+    // The name already says whose profile it is; without one, say where it
+    // goes. A late sync shows in the status line's colour.
+    text("lead", nick ? "" : T.goesTo);
     open.textContent = s.profileUrl ? T.profile : T.site;
     open.href = s.profileUrl || "https://gowithme.club";
     open.hidden = false;
-    if (s.profileQr && s.profileQr.length) showQr(s.profileQr, s.profileUrl, T.onPhone);
+    if (s.profileQr && s.profileQr.length) showQr(s.profileQr, s.profileUrl, T.onPhone, T.qrProfile);
     else showQr(undefined);
+  } else if (state === "claim") {
+    // The console is linked, but the profile signed in is nobody's on the
+    // site: someone other than the owner is playing. Their code, as for
+    // linking the console, at the same address.
+    document.body.className = "intro";
+    text("title", T.claim(s.profile));
+    if (s.code) {
+      html("lead", T.scan);
+      showQr(s.qr, s.code, "", T.qrCode);
+      html("code", "<span>" + s.code.slice(0, 3) + "</span><span>" + s.code.slice(3) + "</span>");
+      $("code").setAttribute("aria-label", s.code.split("").join(" "));
+    } else {
+      text("lead", "");
+      showQr(null, "", T.getting);
+    }
   } else if (state === "offline" || state === "down") {
     text("title", state === "down" ? T.down : T.offline);
     text("lead", state === "down" ? T.downText : T.offlineText);
     showQr(undefined);
   } else {
+    // Not linked yet, maybe by someone who found the payload in a list:
+    // the step, then what the service is in the footer.
+    document.body.className = "intro";
     text("title", T.link);
-    text("lead", T.about);
     if (state === "code" && s.code) {
-      $("code").innerHTML = "<span>" + s.code.slice(0, 3) + "</span><span>" + s.code.slice(3) + "</span>";
-      $("code").hidden = false;
-      $("hint").innerHTML = T.scan;
-      $("hint").hidden = false;
-      showQr(s.qr, s.code, "");
+      html("lead", T.scan);
+      showQr(s.qr, s.code, "", T.qrCode);
+      html("code", "<span>" + s.code.slice(0, 3) + "</span><span>" + s.code.slice(3) + "</span>");
+      $("code").setAttribute("aria-label", s.code.split("").join(" "));
     } else if (state === "stopped") {
+      text("lead", "");
       pair.textContent = T.showCode;
       pair.hidden = false;
       showQr(undefined);
+      // Opening the tile is the wish to link: ask for a code once, without
+      // making the cursor travel to the button.
+      if (!asked) { asked = true; askForCode(); }
     } else {
-      text("hint", T.getting);
-      showQr(null, "", "");
+      text("lead", "");
+      showQr(null, "", T.getting);
     }
   }
   $("actions").hidden = open.hidden && pair.hidden;
 }
 
-var first = true, misses = 0;
+var first = true, misses = 0, asked = false;
 
 function load() {
   var url = "/state?lang=" + (ru ? "ru" : "en");
@@ -323,7 +559,7 @@ function load() {
   first = false;
   fetch(url, { cache: "no-store" })
     .then(function (r) { return r.json(); })
-    .then(function (s) { misses = 0; render(s); }, function () {
+    .then(function (s) { misses = 0; last = s; render(s); }, function () {
       // A new copy takes over the port within seconds: one miss is that,
       // two in a row mean the tracker is gone.
       if (++misses >= 2) render({ state: "down" });
@@ -331,12 +567,31 @@ function load() {
     .then(function () { setTimeout(load, 3000); });
 }
 
-$("pair").addEventListener("click", function () {
+function askForCode() {
   var pair = $("pair");
   pair.disabled = true;
   fetch("/pair", { method: "POST" })
     .catch(function () {})
     .then(function () { pair.disabled = false; render({ state: "connecting" }); });
+}
+
+$("pair").addEventListener("click", askForCode);
+
+$("helloTitle").textContent = T.helloTitle;
+$("helloGo").textContent = T.helloGo;
+window.addEventListener("resize", fitFlow);
+
+// On to linking: the welcome fades and the page it covered rises.
+$("helloGo").addEventListener("click", function () {
+  if (welcomed) return;
+  welcomed = true;
+  fetch("/welcome", { method: "POST" }).catch(function () {});
+  $("hello").className = "hello out";
+  setTimeout(function () {
+    $("hello").className = "hello";
+    $("stage").className = "stage enter";
+    render(last || { state: "connecting" });
+  }, 220);
 });
 
 load();

@@ -58,6 +58,25 @@ static time_t gwm_cfg_mtime = 0;
 static gwm_pair_t gwm_pair;
 /* Raw time of the server's last 200, for the console page. */
 static int64_t gwm_last_ok = 0;
+/* The welcome screen was read, or the console was linked once: the page no
+ * longer opens on it (web.h). */
+static int gwm_welcome_seen = 0;
+
+/* The profile signed in on the console, which the heartbeat names (record.h),
+ * and the one the last answer was about (gwm_profile, upload.h). */
+static char gwm_foreground[GWM_ACCOUNT_LEN] = "";
+static char gwm_profile_for[GWM_ACCOUNT_LEN] = "";
+/* Profiles told once this run that they are nobody's on the site yet. */
+#define GWM_REMINDED_MAX 8
+static char gwm_reminded[GWM_REMINDED_MAX][GWM_ACCOUNT_LEN];
+static int  gwm_reminded_n = 0;
+
+static void gwm_welcome_mark(void)
+{
+	FILE *f = fopen(GWM_WELCOME_FILE, "w");
+	if(f) fclose(f);
+	gwm_welcome_seen = 1;
+}
 
 /* On the PS5 the main thread's name is also the process name (ki_comm),
  * which sets us apart from all the other payload.elf. The .elf suffix is
@@ -80,6 +99,7 @@ static void gwm_config_refresh(int announce)
 
 	gwm_config_load(&gwm_cfg, GWM_CONFIG_FILE);
 	gwm_popups = gwm_cfg.popups;
+	if(gwm_cfg.valid && !gwm_welcome_seen) gwm_welcome_mark();
 
 	gwm_log("config: %s, host=%s:%u, account=%s", gwm_cfg.valid ? "token set" : "no token, pairing by code",
 	        gwm_cfg.host, (unsigned)gwm_cfg.port, gwm_cfg.account[0] ? gwm_cfg.account : "(profile)");
@@ -93,11 +113,12 @@ static void gwm_pair_step(void)
 
 	if(!profile[0]) gwm_user_account(gwm_cfg.account, gwm_user_foreground(), profile, sizeof(profile));
 
-	if(gwm_pair_tick(&gwm_pair, &gwm_cfg, profile))
+	if(gwm_pair_tick(&gwm_pair, &gwm_cfg, profile, gwm_tile_shown))
 	{
 		gwm_config_refresh(1);
 		gwm_connected_once = 1;
-		gwm_toast(GWM_PRODUCT ": %s linked", profile);
+		if(profile[0]) gwm_toast(GWM_TR("Console linked\n%s", "Консоль привязана\n%s"), profile);
+		else gwm_toast("%s", GWM_TR("Console linked", "Консоль привязана"));
 		return;
 	}
 
@@ -108,7 +129,8 @@ static void gwm_pair_step(void)
 	else if(gwm_pair.next_start > gwm_now_raw())
 	{
 		gwm_announced = 1;
-		gwm_toast(GWM_PRODUCT ": can't reach the server to get a code");
+		gwm_toast("%s", GWM_TR("Can't get a code\nNo connection to " GWM_PRODUCT,
+		                       "Код не получен\nНет связи с " GWM_PRODUCT));
 	}
 }
 
@@ -121,7 +143,7 @@ static void gwm_web_refresh(void)
 	memset(&v, 0, sizeof(v));
 	const char *state;
 
-	if(gwm_cfg.valid)                  state = "linked";
+	if(gwm_cfg.valid)                  state = gwm_profile.unclaimed ? "claim" : "linked";
 	else if(gwm_pair.done)             state = "stopped";
 	else if(gwm_pair.active)           state = "code";
 	else if(gwm_pair.next_start > now) state = "offline";
@@ -129,13 +151,26 @@ static void gwm_web_refresh(void)
 
 	snprintf(v.state, sizeof(v.state), "%s", state);
 	if(!gwm_cfg.valid && gwm_pair.active) snprintf(v.code, sizeof(v.code), "%s", gwm_pair.code);
+	if(gwm_cfg.valid && gwm_profile.unclaimed)
+	{
+		snprintf(v.code, sizeof(v.code), "%s", gwm_profile.code);
+		snprintf(v.profile, sizeof(v.profile), "%s", gwm_profile_for);
+	}
 	v.sync_ago = gwm_last_ok ? now - gwm_last_ok : -1;
 	if(v.sync_ago < -1) v.sync_ago = 0;
 	v.queued = gwm_file_size(GWM_SESSION_QUEUE) + gwm_file_size(GWM_TROPHY_QUEUE);
 	if(v.queued < 0) v.queued = 0;
 	/* A profile shows only while the console is linked: after an unlink the
 	 * address names someone the console no longer reports to. */
-	if(gwm_cfg.valid) snprintf(v.profile_url, sizeof(v.profile_url), "%s", gwm_profile_url);
+	if(gwm_cfg.valid) snprintf(v.profile_url, sizeof(v.profile_url), "%s", gwm_profile.url);
+	v.rec_seconds = v.rec_games = v.rec_trophies = -1;
+	if(gwm_cfg.valid)
+	{
+		v.rec_seconds = gwm_recorded.seconds;
+		v.rec_games = gwm_recorded.games;
+		v.rec_trophies = gwm_recorded.trophies;
+	}
+	v.welcome = !gwm_cfg.valid && !gwm_welcome_seen;
 	gwm_web_publish(&v);
 }
 
@@ -155,6 +190,7 @@ static void gwm_write_status(void)
 	fprintf(f, "playing = %s\n", gwm_sess.active ? gwm_sess.title_id : "");
 	fprintf(f, "title = %s\n", gwm_sess.active ? gwm_sess.title : "");
 	fprintf(f, "account = %s\n", gwm_sess.active ? gwm_sess.account : "");
+	fprintf(f, "signed_in = %s%s\n", gwm_foreground, gwm_profile.unclaimed ? " (not linked)" : "");
 	fprintf(f, "started = %s\n", gwm_sess.active ? started : "");
 	fprintf(f, "last_http = %d\n", gwm_last_code);
 	fprintf(f, "clock_offset = %lld\n", (long long)gwm_clock_offset);
@@ -172,18 +208,79 @@ static void gwm_write_status(void)
 	gwm_web_refresh();
 }
 
+#define GWM_SYSTEM_PARAM_LANG 1
+
+int sceSystemServiceParamGetInt(int id, int *value);
+
+/* The language of the notifications (lang.h); the last one stays when the
+ * system does not answer. */
+static void gwm_lang_detect(void)
+{
+	static int last = -1;
+	int code = -1;
+
+	if(sceSystemServiceParamGetInt(GWM_SYSTEM_PARAM_LANG, &code) != 0) return;
+	gwm_lang = gwm_lang_of(code);
+	if(code != last) gwm_log("language: %d (%s)", code, gwm_lang == GWM_LANG_RU ? "ru" : "en");
+	last = code;
+}
+
+/* The profile signed in on the console: the one config.cfg names for every
+ * user, or the service's answer. Nothing when the service does not answer:
+ * the page must not name the wrong person. */
+static void gwm_foreground_detect(void)
+{
+	char name[GWM_ACCOUNT_LEN] = "";
+
+	if(gwm_cfg.account[0]) snprintf(name, sizeof(name), "%s", gwm_cfg.account);
+	else
+	{
+		int uid = gwm_user_signed_in();
+		if(uid != GWM_USER_NONE) gwm_user_account(NULL, uid, name, sizeof(name));
+	}
+	if(strcmp(name, gwm_foreground)) gwm_log("signed in: %s", name[0] ? name : "(unknown)");
+	snprintf(gwm_foreground, sizeof(gwm_foreground), "%s", name);
+}
+
+static int gwm_reminded_once(const char *profile)
+{
+	for(int i = 0; i < gwm_reminded_n; i++)
+		if(!strcmp(gwm_reminded[i], profile)) return 0;
+	if(gwm_reminded_n < GWM_REMINDED_MAX)
+		snprintf(gwm_reminded[gwm_reminded_n++], GWM_ACCOUNT_LEN, "%s", profile);
+	return 1;
+}
+
+/* What the answer changed for the profile signed in: claimed on the site
+ * just now (by the code on the page, or by the owner), or found to be
+ * nobody's, which its person hears once a run unless the page is in front
+ * of them already. */
+static void gwm_profile_news(const gwm_profile_t *before, int same_profile)
+{
+	if(same_profile && before->unclaimed && !gwm_profile.unclaimed && gwm_profile_for[0])
+		gwm_toast(GWM_TR("Profile linked\n%s", "Профиль привязан\n%s"), gwm_profile_for);
+	if(gwm_profile.unclaimed && gwm_profile_for[0] && gwm_reminded_once(gwm_profile_for) && !gwm_web_open())
+		gwm_toast("%s", GWM_TR("Link your profile\nOpen " GWM_PRODUCT, "Привяжите свой профиль\nОткройте " GWM_PRODUCT));
+}
+
 /* One network pass: a heartbeat and, if the server answered, the queues. */
 static void gwm_net_pass(void)
 {
 	int was_synced = gwm_clock_synced;
-	int code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess);
+	gwm_lang_detect();
+	gwm_foreground_detect();
+
+	gwm_profile_t before = gwm_profile;
+	int same_profile = !strcmp(gwm_profile_for, gwm_foreground);
+	int code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_foreground, gwm_web_open());
 
 	/* The first response brought the clock offset, but this heartbeat went
 	 * out without it, with startedAt off by the clock error. If the error is
 	 * noticeable, resend right away. */
 	if(code == 200 && !was_synced && gwm_clock_synced &&
 	   (gwm_clock_offset > 30 || gwm_clock_offset < -30))
-		code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess);
+		code = gwm_send_heartbeat(&gwm_cfg, &gwm_sess, gwm_foreground, gwm_web_open());
+	if(code == 200) snprintf(gwm_profile_for, sizeof(gwm_profile_for), "%s", gwm_foreground);
 
 	if(code != gwm_last_code) gwm_log("heartbeat -> %d (clock offset %lld s)", code, (long long)gwm_clock_offset);
 	gwm_last_code = code;
@@ -201,7 +298,7 @@ static void gwm_net_pass(void)
 		gwm_connected_once = 0;
 		gwm_announced = 1;
 		gwm_pair.done = 1;
-		gwm_toast(GWM_PRODUCT ": console unlinked");
+		gwm_toast("%s", GWM_TR("Console unlinked", "Консоль отвязана"));
 		return;
 	}
 
@@ -209,7 +306,9 @@ static void gwm_net_pass(void)
 	{
 		gwm_announced = 1;
 		gwm_connected_once = (code == 200);
-		gwm_toast(code == 200 ? GWM_PRODUCT ": tracker started" : GWM_PRODUCT ": tracker started, server unreachable");
+		gwm_toast("%s", code == 200 ? GWM_TR("Tracker started", "Трекер запущен")
+		                            : GWM_TR("Tracker started\nNo connection to " GWM_PRODUCT,
+		                                     "Трекер запущен\nНет связи с " GWM_PRODUCT));
 	}
 
 	if(code != 200) return;
@@ -218,8 +317,11 @@ static void gwm_net_pass(void)
 	if(!gwm_connected_once)
 	{
 		gwm_connected_once = 1;
-		gwm_toast(GWM_PRODUCT ": connected");
+		gwm_toast("%s", GWM_TR("Connected", "Связь восстановлена"));
 	}
+
+	/* After "started" or "connected", which say the tracker is there at all. */
+	gwm_profile_news(&before, same_profile);
 
 	/* Queues go out only once the clock offset is known: otherwise
 	 * timestamps would leave raw, and a resend with different ones is a
@@ -291,7 +393,13 @@ int main(void)
 	gwm_state_load(&gwm_state);
 	gwm_session_init(&gwm_sess);
 
+	gwm_lang_detect();
+	struct stat welcome;
+	if(stat(GWM_WELCOME_FILE, &welcome) == 0) gwm_welcome_seen = 1;
+
 	gwm_icon_write();
+	/* The page's first answer already knows whether to welcome. */
+	gwm_web_refresh();
 	gwm_web_start();
 	gwm_tile_start(GWM_WEB_PORT);
 
@@ -310,6 +418,10 @@ int main(void)
 			next_config = now + GWM_CONFIG_CHECK_SEC;
 		}
 
+		/* A code on the page: every pass, so a claim on the phone shows
+		 * within seconds. */
+		if(gwm_cfg.valid && gwm_profile.unclaimed && gwm_web_open()) heartbeat_due = 1;
+
 		if(gwm_cfg.valid && (heartbeat_due || now >= next_heartbeat || now < next_heartbeat - GWM_HEARTBEAT_SEC))
 		{
 			gwm_net_pass();
@@ -327,6 +439,21 @@ int main(void)
 			{
 				gwm_log("pairing: new code asked for on the console page");
 				memset(&gwm_pair, 0, sizeof(gwm_pair));
+			}
+
+			/* The page was just opened: ask the server now who is signed
+			 * in, rather than show the last answer for up to a minute. */
+			if(gwm_web_opened() && gwm_cfg.valid)
+			{
+				heartbeat_due = 1;
+				break;
+			}
+
+			if(gwm_web_welcome_read() && !gwm_welcome_seen)
+			{
+				gwm_log("page: welcome read");
+				gwm_welcome_mark();
+				gwm_web_refresh();
 			}
 
 			if(!gwm_cfg.valid)

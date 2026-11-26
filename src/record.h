@@ -80,10 +80,14 @@ static size_t gwm_build_session(char *out, size_t out_size,
 
 /* An empty current means the console is on but nothing is being played.
  * device_name is the console name from its settings and console_id its
- * identifier (console.h); an empty one is not sent. */
+ * identifier (console.h); an empty one is not sent. foreground is the profile
+ * open on the console, playing or not, and code_wanted says the tile's page is
+ * on screen to show a code for it (the server's answer, reply.h). */
 static size_t gwm_build_heartbeat(char *out, size_t out_size,
                                   const char *sent_at, const char *device_name,
-                                  const char *console_id, int playing,
+                                  const char *console_id,
+                                  const char *foreground, int code_wanted,
+                                  int playing,
                                   const char *account,
                                   const char *title_id, const char *title,
                                   const char *started_at)
@@ -102,6 +106,12 @@ static size_t gwm_build_heartbeat(char *out, size_t out_size,
 	{
 		p = gwm_lit(p, end, ",");
 		p = gwm_json_kv(p, end, "consoleId", console_id);
+	}
+	if(foreground && foreground[0])
+	{
+		p = gwm_lit(p, end, ",");
+		p = gwm_json_kv(p, end, "foregroundAccount", foreground);
+		if(code_wanted) p = gwm_lit(p, end, ",\"profileCodeWanted\":true");
 	}
 	p = gwm_lit(p, end, ",\"current\":[");
 

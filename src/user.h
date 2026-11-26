@@ -164,6 +164,17 @@ static int gwm_user_foreground(void)
 	return gwm_user_from_home();
 }
 
+/* The user signed in on the console as the service says, or GWM_USER_NONE.
+ * Unlike gwm_user_foreground there is no guess from /user/home: the console
+ * page names this profile to the person in front of it. */
+static int gwm_user_signed_in(void)
+{
+	int uid = GWM_USER_NONE;
+
+	if(gwm_usvc_call(0, &uid, NULL, 0) == 0 && uid != GWM_USER_NONE && uid != 0) return uid;
+	return GWM_USER_NONE;
+}
+
 /* Name cache: a profile name does not change mid-run, and there is no need
  * to ask the service on every poll. */
 #define GWM_USER_CACHE 8

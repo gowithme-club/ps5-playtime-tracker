@@ -40,7 +40,7 @@ BUILD   := build
 ELF     := $(BUILD)/$(ELF_NAME)
 HEADERS := $(wildcard src/*.h)
 # Built into the ELF by src/asset.h.
-ASSETS  := assets/icon0.png assets/page.html
+ASSETS  := assets/icon0.png assets/page.html assets/pic0.dds.rle
 
 .PHONY: all test deploy clean sdk-check
 

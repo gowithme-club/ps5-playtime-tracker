@@ -61,6 +61,12 @@ No. Sessions stay in the system journal and are picked up on the next start.
 PS4 trophy notifications disappear after a while, so run the payload
 regularly if you play PS4 games.
 
+**Several people play on one console. Whose profile gets the games?**
+Each console profile's games go to the gowithme.club profile it is linked to.
+The person who linked the console gets their own profile. Anyone else opens
+the tile while signed in to their profile, scans the code it shows and signs
+in to their own account.
+
 **Can I use elfldr?**
 Yes, send the file to port 9021. Under elfldr the console may not give the
 payload profile names, and the site then shows profiles by their id.

@@ -2,17 +2,21 @@
  *
  * There is no good way to type a token on a PS5: no keyboard, no SD card,
  * and FTP is too much to ask. So without a token the payload asks the server
- * for a code (POST /ingest/v1/pair), shows it in a notification ("Enter code
- * 123456 at gowithme.club/ps5") and every few seconds asks whether it was
- * entered (POST /ingest/v1/pair/poll). The notification names the page
- * because it is all a person sees: someone who only downloaded the file has
- * to learn from it where the code goes. Once the code is entered on the
+ * for a code (POST /ingest/v1/pair), shows it in a notification ("Code
+ * 123 456" under "Enter it at gowithme.club/ps5") and every few seconds asks
+ * whether it was entered (POST /ingest/v1/pair/poll). The notification names
+ * the page because it is all a person sees: someone who only downloaded the
+ * file has to learn from it where the code goes. Once the code is entered on the
  * site, the next poll brings the key; the payload writes it to config.cfg
  * and carries on as usual.
  *
- * A PS5 notification fades in a few seconds and its duration cannot be set,
- * so while the code is valid it is repeated every 10 seconds. A code lives
- * 10 minutes; when it expires the payload takes a new one.
+ * The tile in Media (tile.h, web.h) shows the code with a QR code and
+ * follows a new one by itself, so notifications only send people there:
+ * twice, when the first code arrives and two minutes later. A PS5
+ * notification fades in a few seconds and its duration cannot be set; with
+ * the tile deleted the code itself is the notification, repeated every 10
+ * seconds while it is valid. A code lives 10 minutes; when it expires the
+ * payload takes a new one.
  *
  * New codes are taken for 20 minutes after the first one: two codes, enough
  * to sign up on the site. Then the payload says once that the console is not
@@ -41,6 +45,9 @@
 #define GWM_PAIR_URL "gowithme.club/ps5"
 
 #define GWM_PAIR_TOAST_EVERY_SEC 10
+/* Reminders to open the tile: how many, and how far apart. */
+#define GWM_PAIR_NUDGES          2
+#define GWM_PAIR_NUDGE_AFTER_SEC 120
 #define GWM_PAIR_RETRY_SEC       60
 #define GWM_PAIR_WINDOW_SEC      (20 * 60)
 
@@ -57,6 +64,8 @@ typedef struct
 	int64_t window_end;
 	/* No more pairing in this run. */
 	int     done;
+	/* Reminders to open the tile sent in this run. */
+	int     nudges;
 } gwm_pair_t;
 
 /* Whether to ask for a new code now: 1 yes, 0 not yet, -1 never again in
@@ -137,12 +146,14 @@ static size_t gwm_pair_start_body(char *out, size_t size, const char *profile, c
 
 static void gwm_pair_toast(const gwm_pair_t *p)
 {
-	gwm_toast("Enter code %s at " GWM_PAIR_URL, p->code);
+	gwm_toast(GWM_TR("Code %.3s %s\nEnter it at " GWM_PAIR_URL, "Код %.3s %s\nВведите его на " GWM_PAIR_URL),
+	          p->code, p->code + 3);
 }
 
-/* One pairing step, called every second while there is no token. Returns 1
- * once the key is received and written to the config. */
-static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *profile)
+/* One pairing step, called every second while there is no token. tile says
+ * whether the tile is on the home screen to send people to. Returns 1 once
+ * the key is received and written to the config. */
+static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *profile, int tile)
 {
 	char body[512], resp[1024];
 	int64_t now = gwm_now_raw();
@@ -156,7 +167,10 @@ static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *pro
 		{
 			gwm_log("pairing: no code entered in %d min, stopping until the next start", GWM_PAIR_WINDOW_SEC / 60);
 			p->done = 1;
-			gwm_toast(GWM_PRODUCT ": not linked, open the tile in Media for a new code");
+			if(tile) gwm_toast("%s", GWM_TR("Not linked\nOpen " GWM_PRODUCT " for a code",
+			                                "Консоль не привязана\nОткройте " GWM_PRODUCT ", чтобы получить код"));
+			else gwm_toast("%s", GWM_TR("Not linked\nLoad the payload again for a code",
+			                            "Консоль не привязана\nЗапустите payload ещё раз, чтобы получить код"));
 			return 0;
 		}
 		if(!may) return 0;
@@ -180,8 +194,17 @@ static int gwm_pair_tick(gwm_pair_t *p, const gwm_config_t *cfg, const char *pro
 
 	if(now >= p->next_toast)
 	{
-		gwm_pair_toast(p);
-		p->next_toast = now + GWM_PAIR_TOAST_EVERY_SEC;
+		if(!tile)
+		{
+			gwm_pair_toast(p);
+			p->next_toast = now + GWM_PAIR_TOAST_EVERY_SEC;
+		}
+		else if(p->nudges < GWM_PAIR_NUDGES)
+		{
+			gwm_toast("%s", GWM_TR("Link this PS5\nOpen " GWM_PRODUCT, "Привяжите эту PS5\nОткройте " GWM_PRODUCT));
+			p->nudges++;
+			p->next_toast = now + GWM_PAIR_NUDGE_AFTER_SEC;
+		}
 	}
 
 	if(now < p->next_poll) return 0;

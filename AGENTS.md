@@ -21,6 +21,8 @@ make test       # host tests in tests/, plain cc, no SDK, no console
 
 Pure logic is guarded so it compiles on the host with `-DGWM_HOST_TEST`. When a bug is reproducible in pure logic, add a host test instead of spending a console run.
 
+The page the tile opens (`assets/page.html`) can be worked on without a console: `python3 tools/page_preview.py` serves it with a stub state and shows it in a 1540×700 frame, the size of the console browser's window, with links to every state. The console's own font and missing monospace still differ, so check the result on the console too.
+
 ## Running on the console
 
 Payload Manager's HTTP API on port 8084 is the way in. Every upload or launch needs the header `X-PLDMGR-Request: 1` and a POST; the upload takes `mode=new` on a console without the payload and `mode=replace` over an existing `gowithme.club` folder, and the launch takes the slot, not the file name:

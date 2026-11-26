@@ -77,32 +77,37 @@ static void gwm_batch_fix_times(char *buf, size_t len)
 	}
 }
 
-/* Where the console page sends a linked person: their profile, if the server
- * names it in the heartbeat answer. Only an https address on the site is
- * taken. */
-static char gwm_profile_url[256] = "";
+/* Whose profile the console page shows (reply.h), as of the last answer. */
+static gwm_profile_t gwm_profile;
 
-static void gwm_take_profile_url(const char *resp)
-{
-	char url[sizeof(gwm_profile_url)];
-	if(!gwm_json_get_str(resp, "profileUrl", url, sizeof(url)) || strncmp(url, "https://gowithme.club/", 22)) return;
-	if(strcmp(url, gwm_profile_url)) gwm_log("profile: %s", url);
-	snprintf(gwm_profile_url, sizeof(gwm_profile_url), "%s", url);
-}
+/* What the profile open on the console recorded, as the server last counted
+ * it (reply.h); the whole console from a server that does not tell profiles
+ * apart. */
+static gwm_recorded_t gwm_recorded = { -1, -1, -1 };
 
-static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s)
+/* foreground: the profile open on the console; code_wanted: the console page
+ * is on screen to show a code for it. */
+static int gwm_send_heartbeat(const gwm_config_t *cfg, const gwm_session_t *s, const char *foreground, int code_wanted)
 {
 	char body[GWM_RECORD_MAX], sent[GWM_ISO_LEN], started[GWM_ISO_LEN], resp[2048];
 
 	gwm_iso_from_unix(sent, gwm_now());
 	gwm_iso_from_unix(started, s->start + gwm_clock_offset);
 
-	size_t len = gwm_build_heartbeat(body, sizeof(body), sent, gwm_console_name(), gwm_console_id(), s->active,
-	                                 s->account, s->title_id,
+	size_t len = gwm_build_heartbeat(body, sizeof(body), sent, gwm_console_name(), gwm_console_id(),
+	                                 foreground, code_wanted, s->active, s->account, s->title_id,
 	                                 s->title[0] ? s->title : s->title_id, started);
 
 	int code = gwm_http_request(cfg, GWM_PATH_HEARTBEAT, body, len, cfg->token, resp, sizeof(resp));
-	if(code == 200) gwm_take_profile_url(resp);
+	if(code == 200)
+	{
+		gwm_profile_t was = gwm_profile;
+		gwm_reply_profile(resp, &gwm_profile);
+		if(strcmp(was.url, gwm_profile.url) && gwm_profile.url[0]) gwm_log("profile: %s", gwm_profile.url);
+		if(gwm_profile.unclaimed && !was.unclaimed) gwm_log("profile \"%s\" is nobody's on the site", foreground);
+		if(gwm_profile.code[0] && strcmp(was.code, gwm_profile.code)) gwm_log("profile code for \"%s\" on the page", foreground);
+		gwm_reply_recorded(resp, &gwm_recorded);
+	}
 	return code;
 }
 

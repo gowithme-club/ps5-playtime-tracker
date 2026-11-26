@@ -3,13 +3,21 @@
  * For someone who has only the television in front of them: not linked yet,
  * it shows the code and a QR code for gowithme.club/ps5?code=..., so a phone
  * camera does the typing; linked, it says when the console last reported and
- * shows the owner's profile as a link and a QR code (profileUrl, which the
- * server names in the heartbeat answer).
+ * shows the profile of whoever is signed in on the console as a link and a QR
+ * code (profileUrl, which the server names in the heartbeat answer). When
+ * that profile is nobody's on the site yet, someone other than the owner is
+ * at the console: the page asks them to claim it with a code ("claim"), in the
+ * same way and at the same address as linking the console.
  *
  *   GET  /                 assets/page.html, which draws everything from /state
  *   GET  /icon.png         the tile icon, for the page header
  *   GET  /state?lang=en|ru the current state as JSON
  *   POST /pair             a new pairing window once the old one ran out (pair.h)
+ *   POST /welcome          the welcome screen was read; it is not shown again
+ *
+ * Until the console is linked, the page opens on a welcome screen that says
+ * what the service does, once: its button sends /welcome, and the main loop
+ * keeps the answer in GWM_WELCOME_FILE across runs.
  *
  * The site picks its language from the address, and only / and /ps5 follow
  * the browser's. The page passes the console's language, so the profile link
@@ -23,9 +31,10 @@
  *
  * It runs in its own thread with one connection at a time. The main loop
  * publishes a copy of what the page shows (gwm_web_publish) and reads the
- * pairing request (gwm_web_pair_wanted); the thread copies that view under a
- * lock and builds the JSON from the copy, so the loop stays the single owner
- * of everything else.
+ * page's two requests (gwm_web_pair_wanted, gwm_web_welcome_read) and whether
+ * it is open (gwm_web_opened, gwm_web_open: the page asks for /state every
+ * 3 s); the thread copies that view under a lock and builds the JSON from the
+ * copy, so the loop stays the single owner of everything else.
  *
  * Request parsing, the Host check, the language and the state JSON are pure,
  * covered by a host test.
@@ -39,11 +48,11 @@
 #include <string.h>
 #include <strings.h>
 
+#include "config.h"
 #include "json.h"
 #include "qrcodegen.h"
 #include "version.h"
 
-#define GWM_WEB_PORT 7531
 #define GWM_WEB_STATE_MAX 8192
 #define GWM_WEB_REQ_MAX 2048
 /* Up to version 10 at medium correction: 213 bytes, a profile address with
@@ -53,6 +62,9 @@
 /* What the QR code opens: the pairing page with the code filled in. The site
  * fills it in but never sends it by itself. */
 #define GWM_WEB_QR_PREFIX "https://gowithme.club/ps5?code="
+
+/* Present once the welcome screen was read. */
+#define GWM_WELCOME_FILE GWM_DATA_DIR "/welcome.txt"
 
 /* Method, path, query and Host from a request head. Returns 1 once the head
  * is complete (an empty line), 0 if more is needed or it is malformed. */
@@ -131,11 +143,15 @@ static void gwm_web_localize(const char *url, const char *lang, char *out, size_
 
 typedef struct
 {
-	char    state[16];      /* linked, code, connecting, offline, stopped */
-	char    code[8];
+	char    state[16];      /* linked, claim, code, connecting, offline, stopped */
+	char    code[8];        /* the pairing code, or for claim the profile code */
+	char    profile[64];    /* claim: the profile signed in on the console */
 	int64_t sync_ago;       /* seconds since the last answer, -1 never */
 	long    queued;         /* bytes waiting to be sent */
 	char    profile_url[256];
+	/* What the console recorded (reply.h); -1 until the server says. */
+	int64_t rec_seconds, rec_games, rec_trophies;
+	int     welcome;        /* open on the welcome screen */
 } gwm_web_view_t;
 
 /* The QR code for text as rows of 0 and 1, the way the page draws it. */
@@ -167,6 +183,11 @@ static size_t gwm_web_state_json(char *out, size_t size, const gwm_web_view_t *v
 	p = gwm_json_kv(p, end, "version", GWM_VERSION);
 	p = gwm_lit(p, end, ",");
 	p = gwm_json_kv(p, end, "state", v->state);
+	if(v->profile[0])
+	{
+		p = gwm_lit(p, end, ",");
+		p = gwm_json_kv(p, end, "profile", v->profile);
+	}
 	if(v->code[0])
 	{
 		snprintf(text, sizeof(text), GWM_WEB_QR_PREFIX "%s", v->code);
@@ -187,6 +208,17 @@ static size_t gwm_web_state_json(char *out, size_t size, const gwm_web_view_t *v
 		p = gwm_lit(p, end, ",\"profileQr\":");
 		p = gwm_web_qr(p, end, text);
 	}
+	if(v->rec_seconds >= 0)
+	{
+		p = gwm_lit(p, end, ",\"recorded\":{\"seconds\":");
+		p = gwm_i64(p, end, v->rec_seconds);
+		p = gwm_lit(p, end, ",\"games\":");
+		p = gwm_i64(p, end, v->rec_games);
+		p = gwm_lit(p, end, ",\"trophies\":");
+		p = gwm_i64(p, end, v->rec_trophies);
+		p = gwm_lit(p, end, "}");
+	}
+	if(v->welcome) p = gwm_lit(p, end, ",\"welcome\":true");
 	p = gwm_lit(p, end, "}");
 	return (size_t)(p - out) < size - 1 ? (size_t)(p - out) : 0;
 }
@@ -200,11 +232,28 @@ static size_t gwm_web_state_json(char *out, size_t size, const gwm_web_view_t *v
 #include <unistd.h>
 
 #include "asset.h"
+#include "clock.h"
 #include "log.h"
 
 static pthread_mutex_t gwm_web_lock = PTHREAD_MUTEX_INITIALIZER;
-static gwm_web_view_t gwm_web_view = { "connecting", "", -1, 0, "" };
+static gwm_web_view_t gwm_web_view = { "connecting", "", "", -1, 0, "", -1, -1, -1, 0 };
 static int gwm_web_pair_flag = 0;
+static int gwm_web_welcome_flag = 0;
+static int gwm_web_opened_flag = 0;
+/* Raw time of the page's last /state request. */
+static int64_t gwm_web_seen_at = 0;
+
+/* 1 once each time the page is opened. */
+static int gwm_web_opened(void)
+{
+	return __atomic_exchange_n(&gwm_web_opened_flag, 0, __ATOMIC_ACQ_REL);
+}
+
+/* The page is on screen: it asked for /state within the last few seconds. */
+static int gwm_web_open(void)
+{
+	return gwm_now_raw() - __atomic_load_n(&gwm_web_seen_at, __ATOMIC_ACQUIRE) < 10;
+}
 
 static void gwm_web_publish(const gwm_web_view_t *v)
 {
@@ -217,6 +266,12 @@ static void gwm_web_publish(const gwm_web_view_t *v)
 static int gwm_web_pair_wanted(void)
 {
 	return __atomic_exchange_n(&gwm_web_pair_flag, 0, __ATOMIC_ACQ_REL);
+}
+
+/* 1 once the welcome screen's button was pressed. */
+static int gwm_web_welcome_read(void)
+{
+	return __atomic_exchange_n(&gwm_web_welcome_flag, 0, __ATOMIC_ACQ_REL);
 }
 
 static void gwm_web_send(int s, const char *status, const char *type, const void *body, size_t len)
@@ -273,7 +328,12 @@ static void gwm_web_serve(int s)
 		gwm_web_view_t v;
 
 		/* The page's first request names its language and window size. */
-		if(strstr(query, "first=1")) gwm_log("page: shown (%s)", query);
+		if(strstr(query, "first=1"))
+		{
+			gwm_log("page: shown (%s)", query);
+			__atomic_store_n(&gwm_web_opened_flag, 1, __ATOMIC_RELEASE);
+		}
+		__atomic_store_n(&gwm_web_seen_at, gwm_now_raw(), __ATOMIC_RELEASE);
 
 		pthread_mutex_lock(&gwm_web_lock);
 		v = gwm_web_view;
@@ -286,6 +346,11 @@ static void gwm_web_serve(int s)
 	else if(!strcmp(method, "POST") && !strcmp(path, "/pair"))
 	{
 		__atomic_store_n(&gwm_web_pair_flag, 1, __ATOMIC_RELEASE);
+		gwm_web_send(s, "202 Accepted", "application/json", "{}", 2);
+	}
+	else if(!strcmp(method, "POST") && !strcmp(path, "/welcome"))
+	{
+		__atomic_store_n(&gwm_web_welcome_flag, 1, __ATOMIC_RELEASE);
 		gwm_web_send(s, "202 Accepted", "application/json", "{}", 2);
 	}
 	else gwm_web_send(s, "404 Not Found", "text/plain", "", 0);
